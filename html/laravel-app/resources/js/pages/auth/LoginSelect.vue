@@ -1,8 +1,12 @@
 <template>
   <div>
-    <h2 class="text-2xl font-bold text-center mb-6">欠席連絡システム</h2>
+
+
+    <h2 class="text-2xl font-bold text-center mb-6">誠英高校</h2>
+  <!--
     <p class="text-center text-gray-600 mb-8">ログインするユーザーを選択してください</p>
-    
+  -->
+
     <div class="space-y-4">
       <Button
         variant="primary"
@@ -12,6 +16,8 @@
         保護者ログイン
       </Button>
 
+
+<!-- 
       <Button
         variant="secondary"
         class="w-full py-4 text-lg"
@@ -19,6 +25,7 @@
       >
         初回登録
       </Button>
+-->
 
       <div class="text-center mt-6">
         <button
