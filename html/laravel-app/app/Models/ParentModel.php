@@ -24,19 +24,21 @@ class ParentModel extends Authenticatable
     ];
 
     protected $hidden = [
+        'parent_initial_password', // ログイン用パスワードを非表示
         'parent_password',
     ];
 
     protected function casts(): array
     {
         return [
-            'parent_password' => 'hashed',
+            'parent_initial_password' => 'hashed', // ログイン用パスワードをハッシュ化
+            'parent_password' => 'hashed', // 将来の拡張用
         ];
     }
 
     public function getAuthPassword()
     {
-        return $this->parent_password;
+        return $this->parent_initial_password; // 認証にはparent_initial_passwordを使用
     }
 
     public function student(): BelongsTo

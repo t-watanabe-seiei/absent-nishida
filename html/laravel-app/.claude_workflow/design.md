@@ -189,37 +189,69 @@ DELETE /admin/classes/{id}
 POST /admin/import/students
 POST /admin/import/classes
 POST /admin/import/teachers
+POST /admin/import/parents
 ```
 
 #### 3.2.2 保護者ルート (prefix: /parent)
 ```php
 // 認証
-POST /parent/login
-POST /parent/logout
-POST /parent/verify-2fa
+POST /parent/login              // 初期認証（parent_initial_email/password）
+POST /parent/register-email     // メールアドレス登録（初回のみ）
+POST /parent/verify-2fa         // 2段階認証コード検証
+POST /parent/logout             // ログアウト
 
-// 欠席連絡
-GET /parent/absences
-POST /parent/absences
-GET /parent/absences/{id}
-PUT /parent/absences/{id}
-DELETE /parent/absences/{id}
+// 欠席連絡（2段階認証後のみアクセス可）
+GET /parent/absences            // 欠席連絡一覧
+POST /parent/absences           // 欠席連絡登録
+GET /parent/absences/{id}       // 欠席連絡詳細
+PUT /parent/absences/{id}       // 欠席連絡更新
+DELETE /parent/absences/{id}    // 欠席連絡削除
 ```
 
 ### 3.3 認証・認可設計
 
-#### 3.3.1 2段階認証フロー
+#### 3.3.1 保護者2段階認証フロー
+
+**初回ログイン時:**
 ```
-1. ユーザーがメール・パスワードでログイン
+1. POST /parent/login (parent_initial_email, parent_initial_password)
    ↓
-2. 認証情報が正しい場合、6桁の認証コードを生成
+2. 認証成功 → parent_emailが未登録の場合
    ↓
-3. 認証コードをメールで送信
+3. POST /parent/register-email (parent_email) - メールアドレス登録
    ↓
-4. ユーザーが認証コードを入力
+4. 6桁の認証コードを生成 → DBに保存（有効期限10分）
    ↓
-5. コードが正しい場合、セッションを確立
+5. parent_emailに認証コードをメール送信
+   ↓
+6. POST /parent/verify-2fa (code) - コード検証
+   ↓
+7. コードが正しい場合、セッション確立
+   ↓
+8. 欠席連絡機能へアクセス可能
 ```
+
+**2回目以降のログイン時:**
+```
+1. POST /parent/login (parent_initial_email, parent_initial_password)
+   ↓
+2. 認証成功 → parent_emailが登録済みの場合
+   ↓
+3. 6桁の認証コードを生成 → DBに保存（有効期限10分）
+   ↓
+4. parent_emailに認証コードをメール送信
+   ↓
+5. POST /parent/verify-2fa (code) - コード検証
+   ↓
+6. コードが正しい場合、セッション確立
+   ↓
+7. 欠席連絡機能へアクセス可能
+```
+
+**注意事項:**
+- 毎回のログインで必ず2段階認証を実施
+- parent_emailが未登録の場合はメール登録画面へリダイレクト
+- 認証コードは使用後、またはexpires_at到達時に削除
 
 #### 3.3.2 ガード設定
 - `admin` ガード: 管理者用
@@ -246,11 +278,19 @@ DELETE /parent/absences/{id}
 'parent_name' => 'required|string|max:255',
 'parent_relationship' => 'required|in:父,母,その他',
 'parent_tel' => 'nullable|string|max:20',
-'parent_email' => 'required|email|unique:parents',
-'parent_password' => 'required|string|min:8',
+'parent_initial_email' => 'required|email|unique:parents',
+'parent_initial_password' => 'required|string|min:6',
 ```
 
-#### 3.4.3 欠席連絡登録
+#### 3.4.3 保護者CSVインポート
+```php
+'seito_id' => 'required|string|exists:students,seito_id',
+'parent_name' => 'required|string|max:255',
+'parent_initial_email' => 'required|email|unique:parents,parent_initial_email',
+'parent_initial_password' => 'required|string',
+```
+
+#### 3.4.4 欠席連絡登録
 ```php
 'seito_id' => 'required|exists:students,seito_id',
 'division' => 'required|in:欠席,遅刻',
@@ -281,6 +321,7 @@ resources/
 │   │   ├── Auth/
 │   │   │   ├── AdminLogin.vue
 │   │   │   ├── ParentLogin.vue
+│   │   │   ├── ParentEmailRegister.vue
 │   │   │   └── TwoFactorVerify.vue
 │   │   └── Common/
 │   │       ├── Header.vue
@@ -316,6 +357,19 @@ resources/
 - プレビュー表示
 - インポート実行ボタン
 - エラー表示
+
+#### 4.2.4 ParentEmailRegister.vue
+- メールアドレス入力フォーム（初回ログイン時のみ表示）
+- バリデーション表示（メール形式チェック）
+- 登録ボタン
+- 説明文（2段階認証コード送信先として使用される旨）
+
+#### 4.2.5 TwoFactorVerify.vue
+- 6桁認証コード入力フィールド
+- コード送信済みメールアドレスの表示
+- 検証ボタン
+- 再送信ボタン
+- 有効期限カウントダウン表示
 
 ### 4.3 状態管理
 
@@ -359,6 +413,17 @@ class_id,teacher_name,teacher_email
 CL001,田中先生,tanaka@school.jp
 CL002,鈴木先生,suzuki@school.jp
 ```
+
+#### 5.1.4 保護者データ
+```csv
+seito_id,parent_name,parent_initial_email,parent_initial_password
+S001,山田一郎,yamada-init@temp.school.jp,password123
+S002,佐藤一郎,sato-init@temp.school.jp,password456
+```
+**注意事項:**
+- CSVファイル内のparent_initial_passwordは平文
+- インポート処理でbcrypt暗号化してDBに保存
+- parent_emailは初回ログイン時に保護者が登録
 
 ### 5.2 インポート処理フロー
 ```
@@ -474,6 +539,78 @@ CL002,鈴木先生,suzuki@school.jp
 - 画像最適化
 - Viteによるビルド最適化
 
+## 12. バグ修正設計（2026-02-28）: 初回ログインメール登録フロー
+
+### 12.1 問題の根本原因
+`auth.js` の `parentLogin` アクションが `requires_email_registration: true` を受け取っても無視し、
+`直接ログイン成功` のコードパスを通るため、ストアもコンポーネントも2FA/メール登録画面に遷移しない。
+
+### 12.2 修正対象ファイル（フロントエンドのみ）
+
+| ファイル | 変更種別 | 内容 |
+|---|---|---|
+| `stores/auth.js` | 修正 | `needsEmailRegistration` 状態追加、`parentLogin` で処理分岐追加 |
+| `pages/auth/ParentLogin.vue` | 修正 | `requires_email_registration` 時のルーティング処理追加 |
+| `pages/auth/ParentEmailRegister.vue` | 新規作成 | メールアドレス登録画面 |
+| `router/index.js` | 修正 | `/parent/register-email` ルート追加 |
+
+### 12.3 ログインフロー設計（修正後）
+
+```
+POST /api/parent/login
+        │
+        ├─ requires_email_registration: true
+        │       → /parent/register-email へ遷移
+        │               │
+        │               └─ POST /api/parent/register-email
+        │                       → requires_2fa: true
+        │                               → /parent/verify-2fa へ遷移
+        │
+        ├─ requires_2fa: true
+        │       → /parent/verify-2fa へ遷移（2回目以降）
+        │
+        └─ それ以外（後方互換性）
+                → /parent/dashboard へ遷移
+```
+
+### 12.4 auth.js ストア変更設計
+
+```js
+// state に追加
+needsEmailRegistration: false,
+
+// parentLogin アクション 分岐追加
+if (response.data.requires_email_registration) {
+  this.needsEmailRegistration = true;
+  this.guard = 'parent';
+  this.loginType = 'parent';
+  return response.data;
+}
+```
+
+### 12.5 ParentEmailRegister.vue 設計
+
+- `parent_email` 入力フォーム（email型）
+- POST `/api/parent/register-email`
+- 成功後 → `router.push({ name: 'parent.verify2fa', query: { email } })`
+- エラー表示（重複メール等）
+- バリデーション: 必須・email形式
+
+### 12.6 ルート追加設計
+
+```js
+{
+  path: '/parent/register-email',
+  component: GuestLayout,
+  children: [{
+    path: '',
+    name: 'parent.registerEmail',
+    component: ParentEmailRegister,
+    meta: { guest: true }
+  }]
+}
+```
+
 ## 11. 開発フェーズ計画
 
 ### Phase 1: 環境構築（完了）
@@ -506,10 +643,12 @@ CL002,鈴木先生,suzuki@school.jp
 
 ## 12. 技術的課題と解決策
 
-### 12.1 課題: 保護者の初期パスワード管理
+### 12.1 課題: 保護者の認証フロー管理
 **解決策**: 
-- parent_initial_password（平文）とparent_password（ハッシュ）を分離
-- 初回ログイン時にパスワード変更を促す
+- parent_initial_email/parent_initial_password: ログイン認証用（parent_initial_passwordはbcrypt暗号化）
+- parent_email: 2段階認証コード送信先（必須登録）
+- 初回ログイン時にparent_emailが未登録の場合、メール登録画面へ誘導
+- 2回目以降も同じ初期認証情報でログイン → 登録済みparent_emailに2段階認証コード送信
 
 ### 12.2 課題: 2段階認証のセッション管理
 **解決策**:

@@ -143,4 +143,47 @@ class ImportController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * 保護者データインポート
+     */
+    public function importParents(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
+
+        $file = $request->file('file');
+
+        // ファイルバリデーション
+        if (!$this->csvImportService->validateCSVFile($file)) {
+            return response()->json([
+                'message' => 'CSVファイルが不正です',
+            ], 422);
+        }
+
+        try {
+            // CSVをパース
+            $data = $this->csvImportService->parseCSV($file->getRealPath());
+
+            if (empty($data)) {
+                return response()->json([
+                    'message' => 'CSVファイルにデータがありません',
+                ], 422);
+            }
+
+            // インポート実行
+            $result = $this->csvImportService->importParents($data);
+
+            return response()->json([
+                'message' => "保護者データをインポートしました（{$result['success']}件成功）",
+                'result' => $result,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'インポート中にエラーが発生しました: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
 }

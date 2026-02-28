@@ -17,10 +17,10 @@ return new class extends Migration
             $table->string('parent_name');
             $table->string('parent_relationship');
             $table->string('parent_tel')->nullable();
-            $table->string('parent_initial_email')->nullable();
-            $table->string('parent_initial_password')->nullable();
-            $table->string('parent_email')->unique();
-            $table->string('parent_password');
+            $table->string('parent_initial_email')->unique(); // ログイン用メールアドレス（必須、ユニーク）
+            $table->string('parent_initial_password'); // ログイン用パスワード（必須、bcrypt暗号化）
+            $table->string('parent_email')->nullable()->unique(); // 2段階認証送信先（初回ログイン時に登録）
+            $table->string('parent_password')->nullable(); // 将来の拡張用
             $table->timestamps();
             
             $table->foreign('seito_id')->references('seito_id')->on('students')->onDelete('cascade');

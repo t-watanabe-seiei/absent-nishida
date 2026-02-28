@@ -88,6 +88,7 @@ Route::prefix('admin')->middleware('web')->group(function () {
         // 旧インポート（後方互換性）
         Route::post('/import/classes', [ImportController::class, 'importClasses']);
         Route::post('/import/teachers', [ImportController::class, 'importTeachers']);
+        Route::post('/import/parents-v2', [ImportController::class, 'importParents']); // 新仕様の保護者インポート
     });
 });
 
@@ -102,6 +103,7 @@ Route::prefix('student')->middleware('web')->group(function () {
 Route::prefix('parent')->middleware('web')->group(function () {
     // ログイン・認証
     Route::post('/login', [ParentLoginController::class, 'login']);
+    Route::post('/register-email', [ParentLoginController::class, 'registerEmail']); // 初回ログイン時のメール登録
     Route::post('/verify-2fa', [ParentLoginController::class, 'verify2FA']);
     Route::post('/resend-2fa', [ParentLoginController::class, 'resend2FA']);
     
@@ -109,7 +111,6 @@ Route::prefix('parent')->middleware('web')->group(function () {
     Route::middleware(['parent.auth', 'two_factor'])->group(function () {
         Route::post('/logout', [ParentLoginController::class, 'logout']);
         Route::get('/me', [ParentLoginController::class, 'me']);
-        Route::post('/change-password', [ParentLoginController::class, 'changePassword']);
         
         // 欠席連絡管理
         Route::get('/absences', [AbsenceController::class, 'index']);

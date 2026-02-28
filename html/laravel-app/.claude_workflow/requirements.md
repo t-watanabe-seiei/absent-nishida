@@ -20,8 +20,27 @@
 ## 2. 機能要件
 
 ### 2.1 認証機能
+#### 2.1.1 保護者認証フロー
+**初回ログイン:**
+1. **初期ログイン**: parent_initial_email + parent_initial_password で認証
+2. **メール登録**: 認証成功後、保護者自身のメールアドレス（parent_email）を登録
+3. **2段階認証**: 登録されたparent_emailに6桁の認証コードを送信
+4. **コード検証**: 6桁コードの入力と検証（有効期限: 10分）
+5. **アクセス許可**: 認証成功後、欠席連絡機能へアクセス可能
+
+**2回目以降のログイン:**
+1. **初期ログイン**: parent_initial_email + parent_initial_password で認証
+2. **2段階認証**: 登録済みのparent_emailに6桁の認証コードを送信
+3. **コード検証**: 6桁コードの入力と検証（有効期限: 10分）
+4. **アクセス許可**: 認証成功後、欠席連絡機能へアクセス可能
+
+**注意事項:**
+- 毎回のログインで2段階認証が必須
+- parent_emailが未登録の場合は、初回ログインフローを実行
+- 認証コードは使用後、または有効期限切れ後に自動削除
+
+#### 2.1.2 管理者認証
 - ログイン機能（メール + パスワード）
-- 2段階認証（メール送信による確認コード）
 - ログアウト機能
 - パスワードリセット機能
 
@@ -48,9 +67,29 @@
 - 生徒データのCSVインポート
 - クラスデータのCSVインポート
 - 教員データのCSVインポート（クラス担任情報として）
+- 保護者データのCSVインポート
+  - CSV形式: seito_id, parent_name, parent_initial_email, parent_initial_password (平文)
+  - インポート処理でparent_initial_passwordをbcrypt暗号化してDBに保存
+  - 必須フィールド: seito_id, parent_name, parent_initial_email, parent_initial_password
 
 ### 2.3 保護者機能
-#### 2.3.1 欠席連絡機能
+#### 2.3.1 認証・ログイン機能
+**初回ログイン時:**
+1. parent_initial_email と parent_initial_password（暗号化されたもの）で認証
+2. 認証成功後、保護者自身のメールアドレス（parent_email）を登録
+3. 登録されたparent_emailに6桁の認証コードを送信
+4. 6桁コードの入力と検証（有効期限: 10分）
+5. 認証成功後、欠席連絡機能へアクセス可能
+
+**2回目以降のログイン時:**
+1. parent_initial_email と parent_initial_password で認証
+2. 登録済みのparent_emailに6桁の認証コードを送信
+3. 6桁コードの入力と検証（有効期限: 10分）
+4. 認証成功後、欠席連絡機能へアクセス可能
+
+**重要:** 毎回のログインで2段階認証を実施。認証コードは必ず登録されたparent_emailに送信される。
+
+#### 2.3.2 欠席連絡機能
 - 欠席連絡の登録（欠席/遅刻区分、理由、登校予定時刻）
 - 欠席連絡の編集
 - 欠席連絡の削除
@@ -89,10 +128,10 @@
 | parent_name | STRING | 保護者氏名 | NOT NULL |
 | parent_relationship | STRING | 保護者区分（父・母・その他） | NOT NULL |
 | parent_tel | STRING | 保護者電話番号 | |
-| parent_initial_email | STRING | デフォルトメールアドレス（平文） | |
-| parent_initial_password | STRING | デフォルトパスワード（平文） | |
-| parent_email | STRING | 登録メール（平文） | UNIQUE |
-| parent_password | STRING | 登録パスワード（ハッシュ化） | |
+| parent_initial_email | STRING | 初期メールアドレス（ログイン用） | NOT NULL, UNIQUE |
+| parent_initial_password | STRING | 初期パスワード（bcryptハッシュ化、ログイン用） | NOT NULL |
+| parent_email | STRING | 保護者登録メール（2段階認証送信先） | NULLABLE, UNIQUE |
+| parent_password | STRING | 未使用（将来の拡張用） | NULLABLE |
 | created_at | TIMESTAMP | 作成日時 | |
 | updated_at | TIMESTAMP | 更新日時 | |
 
@@ -175,6 +214,32 @@
 ## 7. 既存システムとの関連
 
 - 新規システムのため、既存システムとの連携は不要
+
+## 9. バグ修正・機能追加（2026-02-28）
+
+### 9.1 初回ログイン時のメールアドレス登録フロー修正
+
+#### 問題
+保護者が `initial_email` + `parent_initial_password` で初回ログインした際、
+`parent_email` が未登録にもかかわらずダッシュボードへ直接遷移してしまう。
+バックエンドは `requires_email_registration: true` を返しているが、
+フロントエンド（auth.js ストア）がそのレスポンスを処理していない。
+
+#### 必要な対応
+1. フロントエンドの auth.js ストアに `needsEmailRegistration` 状態を追加
+2. `parentLogin` アクションで `requires_email_registration` レスポンスを処理
+3. `ParentEmailRegister.vue` 画面を新規作成
+   - メールアドレス入力フォーム
+   - `/api/parent/register-email` へPOST
+   - 成功後、2FA認証画面へ遷移
+4. Vue Router に `/parent/register-email` ルートを追加
+5. `ParentLogin.vue` から `requires_email_registration` 時に遷移処理を追加
+
+#### 成功基準
+- 初回ログイン時（parent_email未登録）はメール登録画面に遷移する
+- メール登録後に2FAコードが送信される
+- 2FA認証後にダッシュボードへ遷移する
+- 2回目以降のログインは従来通り2FA画面に遷移する
 
 ## 8. 今後の拡張可能性
 

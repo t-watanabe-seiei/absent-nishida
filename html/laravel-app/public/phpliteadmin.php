@@ -56,7 +56,7 @@ $subdirectories = false;
 //if any of the databases do not exist as they are referenced by their path, they will be created automatically
 $databases = array(
 	array(
-		'path'=> '/var/www/html/laravel-app/database/database.sqlite',
+		'path'=> '/var/www/html/absent/html/laravel-app/database/database.sqlite',
 		// 'path'=> '/home/seiei9/seiei.online/public_html/2024oc.seiei.online/findAkaeiVR/database/database.sqlite',
 		'name'=> 'main'
 	)

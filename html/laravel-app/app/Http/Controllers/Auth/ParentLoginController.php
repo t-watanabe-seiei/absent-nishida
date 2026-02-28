@@ -20,7 +20,7 @@ class ParentLoginController extends Controller
     }
 
     /**
-     * 保護者ログイン（2FA必須）
+     * 保護者ログイン（parent_initial_email/parent_initial_passwordで認証）
      */
     public function login(Request $request)
     {
@@ -29,26 +29,36 @@ class ParentLoginController extends Controller
             'password' => 'required|string',
         ]);
 
-        $parent = ParentModel::where('parent_email', $credentials['email'])->first();
+        // parent_initial_emailで保護者を検索
+        $parent = ParentModel::where('parent_initial_email', $credentials['email'])->first();
 
         if (!$parent) {
             throw ValidationException::withMessages([
-                'email' => ['メールアドレスまたはパスワードが正しくありません。'],
+                'email' => ['初期メールアドレスまたはパスワードが正しくありません。'],
             ]);
         }
 
-        // 通常のパスワードまたは初期パスワードでログイン可能
-        $passwordValid = Hash::check($credentials['password'], $parent->parent_password);
-        $initialPasswordValid = $parent->parent_initial_password && 
-                               Hash::check($credentials['password'], $parent->parent_initial_password);
-
-        if (!$passwordValid && !$initialPasswordValid) {
+        // parent_initial_passwordで認証（自動ハッシュ化対応）
+        if (!Hash::check($credentials['password'], $parent->parent_initial_password)) {
             throw ValidationException::withMessages([
-                'email' => ['メールアドレスまたはパスワードが正しくありません。'],
+                'email' => ['初期メールアドレスまたはパスワードが正しくありません。'],
             ]);
         }
 
-        // 2段階認証コードを送信
+        // parent_emailが未登録の場合、メール登録が必要
+        if (empty($parent->parent_email)) {
+            // セッションに一時的にparent_idを保存
+            $request->session()->put('parent_id_pending', $parent->id);
+            
+            return response()->json([
+                'message' => '初回ログインです。保護者用のメールアドレスを登録してください。',
+                'requires_email_registration' => true,
+                'parent_id' => $parent->id,
+                'parent_name' => $parent->parent_name,
+            ]);
+        }
+
+        // parent_emailが登録済みの場合、2段階認証コードを送信
         $sent = $this->twoFactorService->createAndSend(
             $parent->parent_email,
             'parent',
@@ -61,8 +71,61 @@ class ParentLoginController extends Controller
             ]);
         }
 
+        // セッションに一時的にparent_idを保存（2FA検証用）
+        $request->session()->put('parent_id_pending', $parent->id);
+
         return response()->json([
             'message' => '認証コードをメールで送信しました。',
+            'requires_2fa' => true,
+            'email' => $parent->parent_email,
+        ]);
+    }
+
+    /**
+     * 保護者用メールアドレス登録（初回ログイン時のみ）
+     */
+    public function registerEmail(Request $request)
+    {
+        $request->validate([
+            'parent_email' => 'required|email|unique:parents,parent_email',
+        ]);
+
+        // セッションからparent_idを取得
+        $parentId = $request->session()->get('parent_id_pending');
+        
+        if (!$parentId) {
+            throw ValidationException::withMessages([
+                'parent_email' => ['セッションが無効です。再度ログインしてください。'],
+            ]);
+        }
+
+        $parent = ParentModel::find($parentId);
+
+        if (!$parent) {
+            throw ValidationException::withMessages([
+                'parent_email' => ['保護者情報が見つかりません。'],
+            ]);
+        }
+
+        // parent_emailを登録
+        $parent->parent_email = $request->parent_email;
+        $parent->save();
+
+        // 2段階認証コードを送信
+        $sent = $this->twoFactorService->createAndSend(
+            $parent->parent_email,
+            'parent',
+            $parent->parent_name
+        );
+
+        if (!$sent) {
+            throw ValidationException::withMessages([
+                'parent_email' => ['認証コードの送信に失敗しました。'],
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'メールアドレスを登録しました。認証コードを送信しました。',
             'requires_2fa' => true,
             'email' => $parent->parent_email,
         ]);
@@ -74,27 +137,40 @@ class ParentLoginController extends Controller
     public function verify2FA(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
             'code' => 'required|string|size:6',
         ]);
 
-        if (!$this->twoFactorService->verify($request->email, $request->code, 'parent')) {
+        // セッションからparent_idを取得
+        $parentId = $request->session()->get('parent_id_pending');
+        
+        if (!$parentId) {
+            throw ValidationException::withMessages([
+                'code' => ['セッションが無効です。再度ログインしてください。'],
+            ]);
+        }
+
+        $parent = ParentModel::find($parentId);
+
+        if (!$parent || empty($parent->parent_email)) {
+            throw ValidationException::withMessages([
+                'code' => ['保護者情報が見つかりません。'],
+            ]);
+        }
+
+        // 2段階認証コード検証
+        if (!$this->twoFactorService->verify($parent->parent_email, $request->code, 'parent')) {
             throw ValidationException::withMessages([
                 'code' => ['認証コードが正しくありません。'],
             ]);
         }
 
-        $parent = ParentModel::where('parent_email', $request->email)->first();
-
+        // 2段階認証成功 → 本ログイン
         Auth::guard('parent')->login($parent);
         $request->session()->regenerate();
-
-        // 初回パスワード変更が必要かチェック
-        $needsPasswordChange = $parent->parent_initial_password !== null;
+        $request->session()->forget('parent_id_pending');
 
         return response()->json([
             'message' => 'ログインしました。',
-            'needs_password_change' => $needsPasswordChange,
             'parent' => [
                 'id' => $parent->id,
                 'name' => $parent->parent_name,
@@ -109,15 +185,20 @@ class ParentLoginController extends Controller
      */
     public function resend2FA(Request $request)
     {
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
-        $parent = ParentModel::where('parent_email', $request->email)->first();
-
-        if (!$parent) {
+        // セッションからparent_idを取得
+        $parentId = $request->session()->get('parent_id_pending');
+        
+        if (!$parentId) {
             throw ValidationException::withMessages([
-                'email' => ['メールアドレスが正しくありません。'],
+                'email' => ['セッションが無効です。再度ログインしてください。'],
+            ]);
+        }
+
+        $parent = ParentModel::find($parentId);
+
+        if (!$parent || empty($parent->parent_email)) {
+            throw ValidationException::withMessages([
+                'email' => ['保護者情報が見つかりません。'],
             ]);
         }
 
@@ -165,43 +246,10 @@ class ParentLoginController extends Controller
             'id' => $parent->id,
             'name' => $parent->parent_name,
             'email' => $parent->parent_email,
+            'initial_email' => $parent->parent_initial_email,
             'tel' => $parent->parent_tel,
             'relationship' => $parent->parent_relationship,
             'seito_id' => $parent->seito_id,
-            'needs_password_change' => $parent->parent_initial_password !== null,
         ]);
-    }
-
-    /**
-     * パスワード変更
-     */
-    public function changePassword(Request $request)
-    {
-        $request->validate([
-            'current_password' => 'required|string',
-            'new_password' => 'required|string|min:8|confirmed',
-        ]);
-
-        /** @var \App\Models\ParentModel $parent */
-        $parent = Auth::guard('parent')->user();
-
-        // 現在のパスワードまたは初期パスワードが正しいか確認
-        $currentPasswordValid = Hash::check($request->current_password, $parent->parent_password);
-        $initialPasswordValid = $parent->parent_initial_password && 
-                               Hash::check($request->current_password, $parent->parent_initial_password);
-
-        if (!$currentPasswordValid && !$initialPasswordValid) {
-            throw ValidationException::withMessages([
-                'current_password' => ['現在のパスワードまたは初期パスワードが正しくありません。'],
-            ]);
-        }
-
-        // 新しいパスワードを設定し、初期パスワードをクリア
-        ParentModel::where('id', $parent->id)->update([
-            'parent_password' => Hash::make($request->new_password),
-            'parent_initial_password' => null,
-        ]);
-
-        return response()->json(['message' => 'パスワードを変更しました。']);
     }
 }

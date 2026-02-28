@@ -15,6 +15,7 @@ import Register from '../pages/auth/Register.vue';
 import RegisterParent from '../pages/auth/RegisterParent.vue';
 import TwoFactorVerify from '../pages/auth/TwoFactorVerify.vue';
 import ParentTwoFactorVerify from '../pages/auth/ParentTwoFactorVerify.vue';
+import ParentEmailRegister from '../pages/auth/ParentEmailRegister.vue';
 
 // 管理者画面
 import AdminDashboard from '../pages/admin/Dashboard.vue';
@@ -204,6 +205,18 @@ const routes = [
         path: '',
         name: 'parent.login',
         component: ParentLogin,
+        meta: { guest: true }
+      }
+    ]
+  },
+  {
+    path: '/parent/register-email',
+    component: GuestLayout,
+    children: [
+      {
+        path: '',
+        name: 'parent.registerEmail',
+        component: ParentEmailRegister,
         meta: { guest: true }
       }
     ]

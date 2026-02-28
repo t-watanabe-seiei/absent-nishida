@@ -10,6 +10,7 @@ export const useAuthStore = defineStore('auth', {
     email: null,
     needsPasswordChange: false,
     loginType: null, // 'student' or 'parent' or 'admin'
+    needsEmailRegistration: false,
   }),
 
   getters: {
@@ -39,7 +40,13 @@ export const useAuthStore = defineStore('auth', {
         console.log('📡 API呼び出し: /api/parent/login');
         const response = await axios.post('/api/parent/login', credentials);
         console.log('📨 APIレスポンス:', response.data);
-        
+                // メールアドレス未登録の場合（初回ログイン）
+        if (response.data.requires_email_registration) {
+          this.needsEmailRegistration = true;
+          this.guard = 'parent';
+          this.loginType = 'parent';
+          return response.data;
+        }
         // 2FAが必要な場合
         if (response.data.requires_2fa) {
           console.log('🔐 2FA必須 - ストア状態を更新');
@@ -135,6 +142,7 @@ export const useAuthStore = defineStore('auth', {
         this.email = null;
         this.needsPasswordChange = false;
         this.loginType = null;
+        this.needsEmailRegistration = false;
       }
     },
 

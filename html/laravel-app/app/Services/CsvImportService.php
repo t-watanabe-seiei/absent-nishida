@@ -290,23 +290,38 @@ class CsvImportService
                     continue;
                 }
                 
-                // 初期パスワードを使用
+                // parent_initial_emailの重複チェック
+                $existingParent = ParentModel::where('parent_initial_email', $row['parent_initial_email'])
+                    ->where('seito_id', '!=', $row['seito_id'])
+                    ->first();
+                
+                if ($existingParent) {
+                    $errors[] = [
+                        'row' => $index + 2,
+                        'data' => $row,
+                        'errors' => ["初期メールアドレス '{$row['parent_initial_email']}' は既に使用されています"],
+                    ];
+                    continue;
+                }
+                
+                // CSVの平文パスワードを保存（表示用）
                 $initialPassword = $row['parent_initial_password'];
                 
-                // 既存チェック（更新または新規作成）
+                // 既存チェック（seito_idで更新または新規作成）
                 $parent = ParentModel::updateOrCreate(
-                    ['parent_email' => $row['parent_initial_email']],
+                    ['seito_id' => $row['seito_id']],
                     [
-                        'seito_id' => $row['seito_id'],
                         'parent_name' => $row['parent_name'],
                         'parent_tel' => null,
                         'parent_relationship' => '保護者',
-                        'parent_password' => Hash::make($initialPassword),
-                        'parent_initial_password' => $initialPassword,
+                        'parent_initial_email' => $row['parent_initial_email'],
+                        'parent_initial_password' => $initialPassword, // Laravel自動ハッシュ化（castsで設定済み）
+                        'parent_email' => null, // 初回ログイン時に登録
+                        'parent_password' => null, // 将来の拡張用
                     ]
                 );
                 
-                // 認証情報を記録
+                // 認証情報を記録（管理者への表示用）
                 $credentials[] = [
                     'seito_id' => $row['seito_id'],
                     'seito_name' => $student->seito_name,
