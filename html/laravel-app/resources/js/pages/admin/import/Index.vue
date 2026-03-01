@@ -2,7 +2,7 @@
   <div>
     <h1 class="text-2xl font-bold mb-6">CSVインポート</h1>
     
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
       <!-- 生徒データインポート -->
       <div class="bg-white rounded-lg shadow p-6">
         <h2 class="text-xl font-semibold mb-4 text-blue-600">生徒データ</h2>
@@ -157,6 +157,69 @@
         </div>
       </div>
       
+      <!-- クラスデータインポート -->
+      <div class="bg-white rounded-lg shadow p-6">
+        <h2 class="text-xl font-semibold mb-4 text-orange-600">クラスデータ</h2>
+        
+        <div class="mb-4">
+          <p class="text-sm text-gray-600 mb-2">CSVファイル形式:</p>
+          <ul class="text-xs text-gray-500 list-disc list-inside mb-3">
+            <li>class_id (クラスID)</li>
+            <li>class_name (クラス名)</li>
+            <li>teacher_name (担任名)</li>
+            <li>teacher_email (担任メール)</li>
+            <li>year_id (年度)</li>
+          </ul>
+          <Button
+            variant="secondary"
+            size="sm"
+            @click="downloadTemplate('classes')"
+            class="w-full mb-3"
+          >
+            📥 テンプレートダウンロード
+          </Button>
+        </div>
+        
+        <div class="mb-4">
+          <input
+            ref="classesFileInput"
+            type="file"
+            accept=".csv"
+            @change="handleFileSelect($event, 'classes')"
+            class="hidden"
+          />
+          <Button
+            variant="primary"
+            @click="$refs.classesFileInput.click()"
+            class="w-full"
+            :disabled="uploading.classes"
+          >
+            📁 ファイルを選択
+          </Button>
+          <p v-if="selectedFiles.classes" class="text-sm text-gray-600 mt-2">
+            {{ selectedFiles.classes.name }}
+          </p>
+        </div>
+        
+        <Button
+          variant="success"
+          @click="uploadFile('classes')"
+          :disabled="!selectedFiles.classes || uploading.classes"
+          class="w-full"
+        >
+          {{ uploading.classes ? 'アップロード中...' : '⬆️ インポート実行' }}
+        </Button>
+        
+        <div v-if="results.classes" class="mt-4 text-sm">
+          <p class="text-green-600 font-semibold">
+            ✓ {{ results.classes.success }}件 成功
+          </p>
+          <p v-if="results.classes.errors && results.classes.errors.length > 0" class="text-red-600">
+            ✗ {{ results.classes.errors.length }}件 エラー
+          </p>
+        </div>
+      </div>
+
       <!-- 管理者データインポート -->
       <div class="bg-white rounded-lg shadow p-6">
         <h2 class="text-xl font-semibold mb-4 text-purple-600">管理者データ</h2>
@@ -263,18 +326,21 @@ const selectedFiles = reactive({
   students: null,
   parents: null,
   admins: null,
+  classes: null,
 });
 
 const uploading = reactive({
   students: false,
   parents: false,
   admins: false,
+  classes: false,
 });
 
 const results = reactive({
   students: null,
   parents: null,
   admins: null,
+  classes: null,
 });
 
 const hasErrors = computed(() => {
@@ -347,6 +413,7 @@ const getTypeName = (type) => {
     students: '生徒データ',
     parents: '保護者データ',
     admins: '管理者データ',
+    classes: 'クラスデータ',
   };
   return names[type] || type;
 };

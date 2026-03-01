@@ -132,6 +132,11 @@ class CsvImportController extends Controller
                 'headers' => ['name', 'email', 'password'],
                 'sample' => ['管理者', 'admin@seiei.ac.jp', 'seiei2026'],
             ],
+            'classes' => [
+                'filename' => 'classes_template.csv',
+                'headers'  => ['class_id', 'class_name', 'teacher_name', 'teacher_email', 'year_id'],
+                'sample'   => ['1TOKUSHIN', '1特進', '田中先生', 'tanaka@seiei.ac.jp', '2026'],
+            ],
         ];
 
         if (!isset($templates[$type])) {

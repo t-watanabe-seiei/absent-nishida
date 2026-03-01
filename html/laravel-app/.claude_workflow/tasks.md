@@ -714,3 +714,87 @@
 3. タスク4-1, 4-1-1, 4-1-2: 保護者認証・メール登録・2FA
 4. タスク3-7, 4-3: ルート定義
 5. その他のタスク
+
+---
+
+## 🔴 機能追加タスク（2026-03-01）
+
+### タスクFA-1: 欠席連絡→担任メール通知修正 [x]
+- **優先度**: 高
+- **見積**: 20分
+- **対象ファイル**: `app/Services/AbsenceNotificationService.php` のみ
+- **内容**:
+  - [ ] `notifyTeacher()` の担任取得を `admins` テーブルから `$class->teacher_email` / `$class->teacher_name` に変更
+  - [ ] `teacher_email` が空の場合はスキップしてログ出力（WarningのみでOK）
+  - [ ] メール本文の宛先を `{$teacherName} 先生` に変更
+  - [ ] `Admin` モデルのインポートを削除（不要になる場合）
+  - [ ] `php -l` で構文チェック
+- **完了条件**: `classes.teacher_email` 宛にメールが送信される、`admins` 検索は不要
+
+### タスクFA-2: 保護者2FA用メール再設定（バックエンド） [x]
+- **優先度**: 高
+- **見積**: 40分
+- **対象ファイル**: `ParentLoginController.php`、`routes/api.php`
+- **内容**:
+  - [ ] `requestEmailChange()` メソッド追加
+    - バリデーション: `required|email|unique:parents,parent_email,{$parentId}`（自分を除く重複チェック）
+    - `TwoFactorService` で new_email 宛にコード生成・送信
+    - セッションに `new_email_pending` を保存
+  - [ ] `confirmEmailChange()` メソッド追加
+    - セッションから `new_email_pending` 取得
+    - `TwoFactorService::verify(new_email, code, 'parent')` 検証
+    - 検証成功後 `parent_email` を更新、セッションから削除
+  - [ ] `routes/api.php` に以下ルート追加（認証済みparentガード下）
+    - `POST /api/parent/request-email-change`
+    - `POST /api/parent/confirm-email-change`
+  - [ ] `php -l` で構文チェック
+- **完了条件**: 新メールに確認コードが届き、検証後に `parent_email` が更新される
+
+### タスクFA-3: 保護者2FA用メール再設定（フロントエンド） [x]
+- **優先度**: 高
+- **見積**: 45分
+- **対象ファイル**: `resources/js/pages/parent/Dashboard.vue`
+- **依存**: タスクFA-2
+- **内容**:
+  - [ ] ダッシュボードに「2FA用メールアドレス変更」カードを追加
+  - [ ] 現在のメールアドレス表示（`authStore.user?.email`）
+  - [ ] Step1: 新メールアドレス入力フォーム
+    - 「確認コードを送信」ボタン → `POST /api/parent/request-email-change`
+  - [ ] Step2: コード入力フォーム（Step1成功後に表示切替）
+    - 6桁コード入力
+    - 「変更する」ボタン → `POST /api/parent/confirm-email-change`
+    - 成功後: 完了メッセージ表示・フォームリセット・`authStore.user.email` 更新
+  - [ ] エラー表示（重複・コード誤り等）
+- **完了条件**: ダッシュボードからメール変更が一連のUIで完結する
+
+### タスクFA-4: クラスCSVインポートテンプレート追加（バックエンド） [x]
+- **優先度**: 中
+- **見積**: 10分
+- **対象ファイル**: `app/Http/Controllers/Admin/CsvImportController.php`
+- **内容**:
+  - [ ] `downloadTemplate()` の `$templates` 配列に `classes` を追加
+    ```php
+    'classes' => [
+        'filename' => 'classes_template.csv',
+        'headers'  => ['class_id', 'class_name', 'teacher_name', 'teacher_email', 'year_id'],
+        'sample'   => ['1TOKUSHIN', '1特進', '田中先生', 'tanaka@seiei.ac.jp', '2026'],
+    ],
+    ```
+  - [ ] `php -l` で構文チェック
+- **完了条件**: `GET /api/admin/import/template/classes` でCSVがダウンロードできる
+
+### タスクFA-5: クラスCSVインポートUI追加（フロントエンド） [x]
+- **優先度**: 中
+- **見積**: 30分
+- **対象ファイル**: `resources/js/pages/admin/import/Index.vue`
+- **依存**: タスクFA-4
+- **内容**:
+  - [ ] `selectedFiles` / `uploading` / `results` reactive オブジェクトに `classes` キーを追加
+  - [ ] `<template>` のグリッドにクラスデータカードを追加
+    - カラム: `class_id`, `class_name`, `teacher_name`, `teacher_email`, `year_id`
+    - テンプレートダウンロード・ファイル選択・インポート実行・結果表示
+  - [ ] `getTypeName()` に `classes: 'クラスデータ'` を追加
+  - [ ] `$refs.classesFileInput` を追加
+- **完了条件**: UI上からクラスCSVのインポートとテンプレートDLができる
+
+

@@ -26,23 +26,22 @@ class AbsenceNotificationService
             $student = $absence->student;
             $class = $student->classModel;
 
-            // 担任を取得（class_idで検索）
-            $teacher = Admin::where('class_id', $class->class_id)
-                          ->where('is_super_admin', false)
-                          ->first();
+            // 担任メールアドレスをclassesテーブルから直接取得
+            $teacherEmail = $class->teacher_email;
+            $teacherName  = $class->teacher_name;
 
-            if (!$teacher) {
-                Log::warning('欠席通知: 担任が見つかりません', [
-                    'class_id' => $class->class_id,
-                    'class_name' => $class->class_name
+            if (empty($teacherEmail)) {
+                Log::warning('欠席通知: teacher_emailが未設定のためスキップ', [
+                    'class_id'   => $class->class_id,
+                    'class_name' => $class->class_name,
                 ]);
                 return false;
             }
 
             // メール本文を作成
             $subject = "【欠席連絡】{$class->class_name} {$student->seito_name}";
-            
-            $body = "{$teacher->name} 先生\n\n";
+
+            $body = "{$teacherName} 先生\n\n";
             $body .= "保護者から欠席連絡がありました。\n\n";
             $body .= "━━━━━━━━━━━━━━━━━━━━\n";
             $body .= "【生徒情報】\n";
@@ -53,25 +52,25 @@ class AbsenceNotificationService
             $body .= "日付: {$absence->absence_date}\n";
             $body .= "区分: {$absence->division}\n";
             $body .= "理由: {$absence->reason}\n";
-            
+
             if ($absence->scheduled_time) {
                 $body .= "予定時刻: {$absence->scheduled_time}\n";
             }
-            
+
             $body .= "\n連絡時刻: " . $absence->created_at->format('Y年m月d日 H:i') . "\n";
             $body .= "━━━━━━━━━━━━━━━━━━━━\n\n";
             $body .= "※このメールは欠席連絡システムから自動送信されています。\n";
 
             // メール送信
-            Mail::raw($body, function ($message) use ($teacher, $subject) {
-                $message->to($teacher->email)
-                       ->subject($subject);
+            Mail::raw($body, function ($message) use ($teacherEmail, $subject) {
+                $message->to($teacherEmail)
+                        ->subject($subject);
             });
 
             Log::info('欠席通知メール送信成功', [
-                'teacher_email' => $teacher->email,
-                'student_name' => $student->seito_name,
-                'absence_id' => $absence->id
+                'teacher_email' => $teacherEmail,
+                'student_name'  => $student->seito_name,
+                'absence_id'    => $absence->id,
             ]);
 
             return true;

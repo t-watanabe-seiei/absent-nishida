@@ -111,6 +111,8 @@ Route::prefix('parent')->middleware('web')->group(function () {
     Route::middleware(['parent.auth', 'two_factor'])->group(function () {
         Route::post('/logout', [ParentLoginController::class, 'logout']);
         Route::get('/me', [ParentLoginController::class, 'me']);
+        Route::post('/request-email-change', [ParentLoginController::class, 'requestEmailChange']);
+        Route::post('/confirm-email-change', [ParentLoginController::class, 'confirmEmailChange']);
         
         // 欠席連絡管理
         Route::get('/absences', [AbsenceController::class, 'index']);

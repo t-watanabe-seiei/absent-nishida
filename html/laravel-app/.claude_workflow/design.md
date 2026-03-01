@@ -611,6 +611,115 @@ if (response.data.requires_email_registration) {
 }
 ```
 
+## 13. 機能追加設計（2026-03-01）
+
+### 13.1 欠席連絡→担任メール通知（classes.teacher_email 利用）
+
+#### 問題
+`AbsenceNotificationService::notifyTeacher()` が担任を `admins` テーブルから検索しているため、
+管理者未登録の担任にはメールが届かない。`classes.teacher_email` を直接使うべき。
+
+#### 修正対象ファイル
+- `app/Services/AbsenceNotificationService.php` のみ修正
+
+#### 変更内容
+```php
+// 変更前
+$teacher = Admin::where('class_id', $class->class_id)
+              ->where('is_super_admin', false)->first();
+if (!$teacher) { return false; }
+Mail::raw($body, fn($msg) => $msg->to($teacher->email)->subject($subject));
+
+// 変更後
+$teacherEmail = $class->teacher_email;
+$teacherName  = $class->teacher_name;
+if (empty($teacherEmail)) {
+    Log::warning('欠席通知: teacher_emailが未設定');
+    return false;
+}
+Mail::raw($body, fn($msg) => $msg->to($teacherEmail)->subject($subject));
+```
+
+#### メール本文の宛先部分
+- `{$teacher->name} 先生` → `{$teacherName} 先生` に変更
+
+---
+
+### 13.2 保護者ダッシュボードでの2FA用メールアドレス再設定
+
+#### APIエンドポイント設計（バックエンド）
+
+| メソッド | パス | 処理 |
+|---|---|---|
+| POST | `/api/parent/request-email-change` | 新メールに確認コード送信 |
+| POST | `/api/parent/confirm-email-change` | コード検証・parent_email更新 |
+
+**POST `/api/parent/request-email-change`**
+```
+リクエスト: { new_email: string }
+バリデーション: required|email|unique:parents,parent_email（自分を除く）
+処理:
+  1. TwoFactorService で new_email 宛にコード生成・送信
+  2. セッションに new_email_pending を保存
+レスポンス: { message, email }
+```
+
+**POST `/api/parent/confirm-email-change`**
+```
+リクエスト: { code: string (6桁) }
+処理:
+  1. セッションから new_email_pending 取得
+  2. TwoFactorService::verify(new_email, code, 'parent') 検証
+  3. 検証成功後 parent_email を更新・セッションから削除
+レスポンス: { message, email }
+```
+
+#### コントローラー
+`ParentLoginController` に2メソッド追加（既存コントローラーへの追記で対応）
+
+#### フロントエンド設計（Dashboard.vue）
+
+Dashboard.vue にメール変更セクションを追加（折りたたみ可能なカード形式）：
+
+**Step 1: 新メールアドレス入力フォーム**
+- 現在のメールアドレス表示
+- 新しいメールアドレス入力（email型）
+- 「確認コードを送信」ボタン → POST `/api/parent/request-email-change`
+
+**Step 2: 確認コード入力フォーム（Step1成功後に表示）**
+- 「{新メール}に確認コードを送信しました」メッセージ
+- 6桁コード入力
+- 「変更する」ボタン → POST `/api/parent/confirm-email-change`
+- 成功後: 表示をリセットし「変更完了」メッセージ
+
+---
+
+### 13.3 管理者CSVインポート：クラスデータ追加
+
+#### バックエンド
+
+**`CsvImportController::downloadTemplate()` に `classes` テンプレート追加**
+```php
+'classes' => [
+    'filename' => 'classes_template.csv',
+    'headers' => ['class_id', 'class_name', 'teacher_name', 'teacher_email', 'year_id'],
+    'sample'  => ['1TOKUSHIN', '1特進', '田中先生', 'tanaka@seiei.ac.jp', '2026'],
+],
+```
+
+**ルート確認**
+`/api/admin/import/classes` → `ImportController::importClasses()` は既に実装済み（変更不要）
+
+#### フロントエンド
+
+`import/Index.vue` の変更：
+1. `selectedFiles` / `uploading` / `results` の reactive オブジェクトに `classes` キーを追加
+2. `<template>` の3カラムグリッドを4カラムに変更し、クラスデータカードを追加
+3. `getTypeName()` に `classes: 'クラスデータ'` を追加
+4. テンプレートダウンロードは既存の `downloadTemplate('classes')` を呼ぶだけでOK
+
+---
+
 ## 11. 開発フェーズ計画
 
 ### Phase 1: 環境構築（完了）

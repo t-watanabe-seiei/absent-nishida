@@ -220,6 +220,95 @@ class ParentLoginController extends Controller
     }
 
     /**
+     * 2FA用メールアドレス変更リクエスト（新メールに確認コード送信）
+     */
+    public function requestEmailChange(Request $request)
+    {
+        $parent = Auth::guard('parent')->user();
+
+        $request->validate([
+            'new_email' => [
+                'required',
+                'email',
+                \Illuminate\Validation\Rule::unique('parents', 'parent_email')->ignore($parent->id),
+            ],
+        ], [
+            'new_email.required' => 'メールアドレスを入力してください。',
+            'new_email.email'    => '正しいメールアドレスを入力してください。',
+            'new_email.unique'   => 'このメールアドレスは既に使用されています。',
+        ]);
+
+        // 新しいメールアドレスに確認コードを送信
+        $sent = $this->twoFactorService->createAndSend(
+            $request->new_email,
+            'parent',
+            $parent->parent_name
+        );
+
+        if (!$sent) {
+            return response()->json([
+                'message' => '確認コードの送信に失敗しました。しばらくしてから再度お試しください。',
+            ], 500);
+        }
+
+        // セッションに変更先メールアドレスを一時保存
+        $request->session()->put('new_email_pending', $request->new_email);
+
+        return response()->json([
+            'message' => '確認コードを送信しました。',
+            'email'   => $request->new_email,
+        ]);
+    }
+
+    /**
+     * 2FA用メールアドレス変更確定（コード検証後にparent_emailを更新）
+     */
+    public function confirmEmailChange(Request $request)
+    {
+        $request->validate([
+            'code' => 'required|string|size:6',
+        ], [
+            'code.required' => '認証コードを入力してください。',
+            'code.size'     => '認証コードは6桁で入力してください。',
+        ]);
+
+        /** @var \App\Models\ParentModel $parent */
+        $parent = Auth::guard('parent')->user();
+
+        if (!$parent) {
+            return response()->json(['message' => '認証が必要です。'], 401);
+        }
+
+        $newEmail = $request->session()->get('new_email_pending');
+
+        if (!$newEmail) {
+            return response()->json([
+                'message' => 'セッションが無効です。最初からやり直してください。',
+            ], 422);
+        }
+
+        // コード検証
+        if (!$this->twoFactorService->verify($newEmail, $request->code, 'parent')) {
+            return response()->json([
+                'message' => '認証コードが正しくありません。',
+                'errors'  => ['code' => ['認証コードが正しくありません。']],
+            ], 422);
+        }
+
+        // parent_email を更新
+        $parent->parent_email = $newEmail;
+        $parent->save();
+
+        // セッションから削除
+        $request->session()->forget('new_email_pending');
+
+        return response()->json([
+            'message' => 'メールアドレスを変更しました。',
+            'email'   => $newEmail,
+        ]);
+    }
+
+    /**
      * ログアウト
      */
     public function logout(Request $request)

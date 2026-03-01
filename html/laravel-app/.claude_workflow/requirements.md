@@ -241,6 +241,61 @@
 - 2FA認証後にダッシュボードへ遷移する
 - 2回目以降のログインは従来通り2FA画面に遷移する
 
+## 10. 機能追加（2026-03-01）
+
+### 10.1 欠席連絡時の担任メール通知
+
+#### 現状
+`AbsenceNotificationService::notifyTeacher()` は実装済みで `AbsenceController::store()` から呼ばれているが、
+担任を `admins` テーブルから `class_id` で検索しているため、
+管理者として登録されていない先生へは送信できない（実質的に動作していない）。
+`classes` テーブルには既に `teacher_email` カラムが存在する。
+
+#### 要件
+- 保護者が欠席連絡を登録した際、対象クラスの `teacher_email`（classesテーブル）へ通知メールを送信する
+- メール内容：生徒名・クラス名・欠席日・区分（欠席/遅刻）・理由・連絡時刻
+- メール送信失敗しても欠席登録はエラーにしない（現行動作を維持）
+
+#### 成功基準
+- 欠席連絡登録後、`classes.teacher_email` 宛にメールが送信される
+- `teacher_email` が空の場合はスキップしてログ出力のみ
+- `admins` テーブルへの依存を除去
+
+### 10.2 保護者ダッシュボードでの2FA用メールアドレス再設定
+
+#### 要件
+- `/parent/dashboard` に「2FA用メールアドレス変更」カードを追加
+- フロー:
+  1. 新しいメールアドレスを入力
+  2. POST `/api/parent/request-email-change` → 新しいアドレスに確認コードを送信
+  3. 6桁の確認コードを入力
+  4. POST `/api/parent/confirm-email-change` → コード検証後に `parent_email` を更新
+- バリデーション：必須・email形式・他保護者と重複不可
+
+#### 成功基準
+- 新しいメールアドレスに確認コードが届く
+- コード検証成功後に `parent_email` が更新される
+- 以降のログインで新しいアドレスに2FAコードが送信される
+
+### 10.3 管理者CSVインポート：クラスデータ
+
+#### 現状
+- バックエンドは `ImportController::importClasses()`・ルート `/api/admin/import/classes` が実装済み
+- `CsvImportService::importClasses()` も実装済み
+- フロントエンド (`import/Index.vue`) にクラスインポートUIが存在しない
+- `CsvImportController::downloadTemplate()` に `classes` テンプレートが未定義
+
+#### 要件
+- フロントエンドのCSVインポート画面にクラスデータインポートカードを追加
+  - 対応CSVカラム: `class_id`, `class_name`, `teacher_name`, `teacher_email`, `year_id`
+  - テンプレートダウンロード機能
+  - ファイル選択・インポート実行・結果表示
+- `CsvImportController::downloadTemplate()` に `classes` テンプレートを追加
+
+#### 成功基準
+- `classes_template.csv` がダウンロードできる
+- CSVアップロード後、クラスデータがDBに登録/更新される
+
 ## 8. 今後の拡張可能性
 
 - 出席状況の統計機能
