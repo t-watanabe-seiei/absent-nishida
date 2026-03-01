@@ -32,9 +32,24 @@
       </div>
     </div>
 
-    <!-- 2FA用メールアドレス変更 -->
+    <!-- 2FA用メールアドレス変更 (トグル表示) -->
     <div class="bg-white rounded-lg shadow p-6 mb-6">
-      <h2 class="text-xl font-semibold mb-1">2FA用メールアドレス変更</h2>
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-semibold">２段階認証用メールアドレス変更</h2>
+        <button
+          type="button"
+          @click="toggleEmailChangeCard"
+          class="text-sm text-blue-600 hover:underline"
+        >
+          {{ showEmailChangeCard ? '閉じる' : '変更する' }}
+        </button>
+      </div>
+
+      <div v-if="showEmailChangeCard" class="mt-4">
+      <p class="text-sm text-gray-500 mb-4">
+        現在のメールアドレス：
+        <span class="font-medium text-gray-700">{{ authStore.user?.email || '未設定' }}</span>
+      </p>
       <p class="text-sm text-gray-500 mb-4">
         現在のメールアドレス：
         <span class="font-medium text-gray-700">{{ authStore.user?.email || '未設定' }}</span>
@@ -111,6 +126,7 @@
           </div>
         </form>
       </div>
+      </div><!-- /v-if showEmailChangeCard -->
     </div>
 
     <div v-if="authStore.needsPasswordChange" class="mt-6 bg-yellow-100 border-l-4 border-yellow-500 p-4">
@@ -140,6 +156,9 @@ import { useAuthStore } from '../../stores/auth';
 
 const authStore = useAuthStore();
 
+// メール変更カード表示フラグ
+const showEmailChangeCard = ref(false);
+
 // メール変更 state
 const newEmail          = ref('');
 const pendingEmail      = ref('');
@@ -150,6 +169,17 @@ const confirming        = ref(false);
 const emailChangeSuccess = ref(false);
 const emailError        = ref('');
 const codeError         = ref('');
+
+const toggleEmailChangeCard = () => {
+  if (showEmailChangeCard.value) {
+    // 閉じるとき: フォームとメッセージをリセット
+    showEmailChangeCard.value = false;
+    emailChangeSuccess.value = false;
+    resetEmailChange();
+  } else {
+    showEmailChangeCard.value = true;
+  }
+};
 
 const requestEmailChange = async () => {
   emailError.value = '';
