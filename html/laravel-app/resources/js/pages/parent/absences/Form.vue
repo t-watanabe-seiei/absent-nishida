@@ -210,7 +210,10 @@ onMounted(async () => {
   // デフォルトの日付を今日に設定（新規作成時のみ）
   if (!isEdit.value) {
     const today = new Date();
-    form.absence_date = today.toISOString().split('T')[0];
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    form.absence_date = `${year}-${month}-${day}`;
   }
   
   fetchData();
