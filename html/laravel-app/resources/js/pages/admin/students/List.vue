@@ -159,7 +159,7 @@ const classTypes = [
   { value: '特進', label: '特進' },
   { value: '進学', label: '進学' },
   { value: '調理', label: '調理' },
-  { value: '情報会計', label: '情報会計' },
+  { value: '情会', label: '情会' },
   { value: '福祉', label: '福祉' },
   { value: '総合１', label: '総合１' },
   { value: '総合２', label: '総合２' },

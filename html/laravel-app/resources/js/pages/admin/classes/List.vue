@@ -145,7 +145,7 @@ const deleteTarget = ref(null);
 
 // クラス名の選択肢
 const classNameOptions = [
-  { value: '1情報会計', label: '1情報会計' },
+  { value: '1情会', label: '1情会' },
   { value: '1特進', label: '1特進' },
   { value: '1福祉', label: '1福祉' },
   { value: '1総合１', label: '1総合１' },
@@ -153,7 +153,7 @@ const classNameOptions = [
   { value: '1総合３', label: '1総合３' },
   { value: '1調理', label: '1調理' },
   { value: '1進学', label: '1進学' },
-  { value: '2情報会計', label: '2情報会計' },
+  { value: '2情会', label: '2情会' },
   { value: '2特進', label: '2特進' },
   { value: '2福祉', label: '2福祉' },
   { value: '2総合１', label: '2総合１' },
@@ -161,7 +161,7 @@ const classNameOptions = [
   { value: '2総合３', label: '2総合３' },
   { value: '2調理', label: '2調理' },
   { value: '2進学', label: '2進学' },
-  { value: '3情報会計', label: '3情報会計' },
+  { value: '3情会', label: '3情会' },
   { value: '3特進', label: '3特進' },
   { value: '3福祉', label: '3福祉' },
   { value: '3総合１', label: '3総合１' },
