@@ -1,1002 +1,155 @@
-# 設計書 - 欠席連絡システム
+# 設計書
 
-## 1. システムアーキテクチャ
+## 機能 A: 管理者CSVインポートへの class_id / is_super_admin 対応
 
-### 1.1 全体構成
-```
-┌─────────────────────────────────────┐
-│       フロントエンド (Vue.js)        │
-│    + Tailwind CSS                   │
-└──────────────┬──────────────────────┘
-               │ HTTP/JSON
-               ▼
-┌─────────────────────────────────────┐
-│    バックエンド (Laravel 12)         │
-│    - API Routes                     │
-│    - Controllers                    │
-│    - Models                         │
-│    - Middleware (Auth, 2FA)         │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│      データベース (SQLite)           │
-└─────────────────────────────────────┘
-```
+### A-1. CsvImportService::importAdmins() の変更
 
-### 1.2 技術選定理由
-
-#### 1.2.1 Laravel 12
-- 最新バージョンで長期サポート対象
-- 標準で認証機能、バリデーション、メール送信機能を提供
-- Eloquent ORMによる安全なデータベース操作
-
-#### 1.2.2 Vue.js 3 + Composition API
-- リアクティブなUI構築
-- コンポーネント指向で再利用性が高い
-- Laravel Viteと統合が容易
-
-#### 1.2.3 SQLite
-- セットアップが簡単
-- 小規模〜中規模システムに最適
-- ファイルベースで管理が容易
-
-#### 1.2.4 Tailwind CSS
-- ユーティリティファーストで開発速度が向上
-- レスポンシブデザインが容易
-- カスタマイズ性が高い
-
-## 2. データベース詳細設計
-
-### 2.1 ER図
-```
-┌─────────────┐      ┌─────────────┐
-│   classes   │      │   students  │
-├─────────────┤      ├─────────────┤
-│ id (PK)     │◄────┤│ id (PK)     │
-│ class_id    │      │ seito_id    │
-│ class_name  │      │ seito_name  │
-│ teacher_name│      │ seito_number│
-│ teacher_email      │ class_id(FK)│
-│ year_id     │      └──────┬──────┘
-└─────────────┘             │
-                            │
-                            ▼
-                    ┌─────────────┐
-                    │   parents   │
-                    ├─────────────┤
-                    │ id (PK)     │
-                    │ seito_id(FK)│
-                    │ parent_name │
-                    │ parent_rel..│
-                    │ parent_tel  │
-                    │ parent_ini..│
-                    │ parent_email│
-                    │ parent_pass.│
-                    └──────┬──────┘
-                           │
-                           │
-                    ┌──────┴──────┐
-                    │  absences   │
-                    ├─────────────┤
-                    │ id (PK)     │
-                    │ seito_id(FK)│
-                    │ division    │
-                    │ reason      │
-                    │ scheduled_..│
-                    │ absence_date│
-                    └─────────────┘
-
-┌─────────────┐
-│   admins    │
-├─────────────┤
-│ id (PK)     │
-│ name        │
-│ email       │
-│ password    │
-└─────────────┘
-```
-
-### 2.2 マイグレーション実装順序
-1. `create_admins_table` - 管理者テーブル
-2. `create_classes_table` - クラステーブル
-3. `create_students_table` - 生徒テーブル（外部キー: class_id）
-4. `create_parents_table` - 保護者テーブル（外部キー: seito_id）
-5. `create_absences_table` - 欠席連絡テーブル（外部キー: seito_id）
-6. `create_two_factor_codes_table` - 2段階認証コードテーブル
-
-### 2.3 インデックス設計
-- `students.seito_id` - UNIQUE INDEX
-- `students.class_id` - INDEX
-- `classes.class_id` - UNIQUE INDEX
-- `parents.seito_id` - INDEX
-- `parents.parent_email` - UNIQUE INDEX
-- `absences.seito_id` - INDEX
-- `absences.absence_date` - INDEX
-- `admins.email` - UNIQUE INDEX
-
-## 3. バックエンド設計
-
-### 3.1 ディレクトリ構成
-```
-app/
-├── Http/
-│   ├── Controllers/
-│   │   ├── Admin/
-│   │   │   ├── StudentController.php
-│   │   │   ├── ParentController.php
-│   │   │   ├── ClassController.php
-│   │   │   └── ImportController.php
-│   │   ├── Auth/
-│   │   │   ├── AdminLoginController.php
-│   │   │   ├── ParentLoginController.php
-│   │   │   └── TwoFactorController.php
-│   │   └── Parent/
-│   │       └── AbsenceController.php
-│   ├── Middleware/
-│   │   ├── AdminAuth.php
-│   │   ├── ParentAuth.php
-│   │   └── TwoFactorVerified.php
-│   └── Requests/
-│       ├── StoreStudentRequest.php
-│       ├── UpdateStudentRequest.php
-│       ├── StoreParentRequest.php
-│       ├── StoreClassRequest.php
-│       └── StoreAbsenceRequest.php
-├── Models/
-│   ├── Admin.php
-│   ├── Student.php
-│   ├── ParentModel.php
-│   ├── ClassModel.php
-│   ├── Absence.php
-│   └── TwoFactorCode.php
-└── Services/
-    ├── CsvImportService.php
-    └── TwoFactorService.php
-```
-
-### 3.2 ルーティング設計
-
-#### 3.2.1 管理者ルート (prefix: /admin)
-```php
-// 認証
-POST /admin/login
-POST /admin/logout
-POST /admin/verify-2fa
-
-// 生徒管理
-GET /admin/students
-POST /admin/students
-GET /admin/students/{id}
-PUT /admin/students/{id}
-DELETE /admin/students/{id}
-
-// 保護者管理
-GET /admin/parents
-POST /admin/parents
-GET /admin/parents/{id}
-PUT /admin/parents/{id}
-DELETE /admin/parents/{id}
-
-// クラス管理
-GET /admin/classes
-POST /admin/classes
-GET /admin/classes/{id}
-PUT /admin/classes/{id}
-DELETE /admin/classes/{id}
-
-// CSVインポート
-POST /admin/import/students
-POST /admin/import/classes
-POST /admin/import/teachers
-POST /admin/import/parents
-```
-
-#### 3.2.2 保護者ルート (prefix: /parent)
-```php
-// 認証
-POST /parent/login              // 初期認証（parent_initial_email/password）
-POST /parent/register-email     // メールアドレス登録（初回のみ）
-POST /parent/verify-2fa         // 2段階認証コード検証
-POST /parent/logout             // ログアウト
-
-// 欠席連絡（2段階認証後のみアクセス可）
-GET /parent/absences            // 欠席連絡一覧
-POST /parent/absences           // 欠席連絡登録
-GET /parent/absences/{id}       // 欠席連絡詳細
-PUT /parent/absences/{id}       // 欠席連絡更新
-DELETE /parent/absences/{id}    // 欠席連絡削除
-```
-
-### 3.3 認証・認可設計
-
-#### 3.3.1 保護者2段階認証フロー
-
-**初回ログイン時:**
-```
-1. POST /parent/login (parent_initial_email, parent_initial_password)
-   ↓
-2. 認証成功 → parent_emailが未登録の場合
-   ↓
-3. POST /parent/register-email (parent_email) - メールアドレス登録
-   ↓
-4. 6桁の認証コードを生成 → DBに保存（有効期限10分）
-   ↓
-5. parent_emailに認証コードをメール送信
-   ↓
-6. POST /parent/verify-2fa (code) - コード検証
-   ↓
-7. コードが正しい場合、セッション確立
-   ↓
-8. 欠席連絡機能へアクセス可能
-```
-
-**2回目以降のログイン時:**
-```
-1. POST /parent/login (parent_initial_email, parent_initial_password)
-   ↓
-2. 認証成功 → parent_emailが登録済みの場合
-   ↓
-3. 6桁の認証コードを生成 → DBに保存（有効期限10分）
-   ↓
-4. parent_emailに認証コードをメール送信
-   ↓
-5. POST /parent/verify-2fa (code) - コード検証
-   ↓
-6. コードが正しい場合、セッション確立
-   ↓
-7. 欠席連絡機能へアクセス可能
-```
-
-**注意事項:**
-- 毎回のログインで必ず2段階認証を実施
-- parent_emailが未登録の場合はメール登録画面へリダイレクト
-- 認証コードは使用後、またはexpires_at到達時に削除
-
-#### 3.3.2 ガード設定
-- `admin` ガード: 管理者用
-- `parent` ガード: 保護者用
-
-#### 3.3.3 ミドルウェア
-- `AdminAuth`: 管理者認証チェック
-- `ParentAuth`: 保護者認証チェック
-- `TwoFactorVerified`: 2段階認証済みチェック
-
-### 3.4 バリデーションルール
-
-#### 3.4.1 生徒登録
-```php
-'seito_id' => 'required|string|unique:students',
-'seito_name' => 'required|string|max:255',
-'seito_number' => 'required|integer|min:1',
-'class_id' => 'required|exists:classes,id',
-```
-
-#### 3.4.2 保護者登録
-```php
-'seito_id' => 'required|exists:students,seito_id',
-'parent_name' => 'required|string|max:255',
-'parent_relationship' => 'required|in:父,母,その他',
-'parent_tel' => 'nullable|string|max:20',
-'parent_initial_email' => 'required|email|unique:parents',
-'parent_initial_password' => 'required|string|min:6',
-```
-
-#### 3.4.3 保護者CSVインポート
-```php
-'seito_id' => 'required|string|exists:students,seito_id',
-'parent_name' => 'required|string|max:255',
-'parent_initial_email' => 'required|email|unique:parents,parent_initial_email',
-'parent_initial_password' => 'required|string',
-```
-
-#### 3.4.4 欠席連絡登録
-```php
-'seito_id' => 'required|exists:students,seito_id',
-'division' => 'required|in:欠席,遅刻',
-'reason' => 'required|string|max:500',
-'scheduled_time' => 'required_if:division,遅刻|date_format:H:i',
-'absence_date' => 'required|date',
-```
-
-## 4. フロントエンド設計
-
-### 4.1 ディレクトリ構成
-```
-resources/
-├── js/
-│   ├── app.js
-│   ├── components/
-│   │   ├── Admin/
-│   │   │   ├── StudentList.vue
-│   │   │   ├── StudentForm.vue
-│   │   │   ├── ParentList.vue
-│   │   │   ├── ParentForm.vue
-│   │   │   ├── ClassList.vue
-│   │   │   ├── ClassForm.vue
-│   │   │   └── CsvImport.vue
-│   │   ├── Parent/
-│   │   │   ├── AbsenceList.vue
-│   │   │   └── AbsenceForm.vue
-│   │   ├── Auth/
-│   │   │   ├── AdminLogin.vue
-│   │   │   ├── ParentLogin.vue
-│   │   │   ├── ParentEmailRegister.vue
-│   │   │   └── TwoFactorVerify.vue
-│   │   └── Common/
-│   │       ├── Header.vue
-│   │       ├── Footer.vue
-│   │       ├── Modal.vue
-│   │       └── Table.vue
-│   ├── layouts/
-│   │   ├── AdminLayout.vue
-│   │   └── ParentLayout.vue
-│   └── router/
-│       └── index.js
-└── css/
-    └── app.css
-```
-
-### 4.2 主要コンポーネント設計
-
-#### 4.2.1 StudentList.vue
-- 生徒一覧表示（テーブル形式）
-- ソート・フィルタリング機能
-- 編集・削除ボタン
-- 新規登録ボタン
-
-#### 4.2.2 AbsenceForm.vue
-- 欠席/遅刻選択（ラジオボタン）
-- 日付選択（カレンダー）
-- 理由入力（テキストエリア）
-- 登校予定時刻（遅刻の場合のみ表示）
-- バリデーション表示
-
-#### 4.2.3 CsvImport.vue
-- ファイル選択
-- プレビュー表示
-- インポート実行ボタン
-- エラー表示
-
-#### 4.2.4 ParentEmailRegister.vue
-- メールアドレス入力フォーム（初回ログイン時のみ表示）
-- バリデーション表示（メール形式チェック）
-- 登録ボタン
-- 説明文（2段階認証コード送信先として使用される旨）
-
-#### 4.2.5 TwoFactorVerify.vue
-- 6桁認証コード入力フィールド
-- コード送信済みメールアドレスの表示
-- 検証ボタン
-- 再送信ボタン
-- 有効期限カウントダウン表示
-
-### 4.3 状態管理
-
-Pinia（Vue 3の推奨状態管理）を使用:
-```
-stores/
-├── auth.js - 認証状態
-├── admin.js - 管理者機能の状態
-└── parent.js - 保護者機能の状態
-```
-
-### 4.4 レスポンシブブレークポイント
-```
-sm: 640px   - スマートフォン
-md: 768px   - タブレット
-lg: 1024px  - デスクトップ
-xl: 1280px  - 大画面デスクトップ
-```
-
-## 5. CSV インポート設計
-
-### 5.1 CSVフォーマット
-
-#### 5.1.1 生徒データ
-```csv
-seito_id,seito_name,seito_number,class_id
-S001,山田太郎,1,CL001
-S002,佐藤花子,2,CL001
-```
-
-#### 5.1.2 クラスデータ
-```csv
-class_id,class_name,teacher_name,teacher_email,year_id
-CL001,1年1組,田中先生,tanaka@school.jp,2025
-CL002,1年2組,鈴木先生,suzuki@school.jp,2025
-```
-
-#### 5.1.3 教員データ（クラス担任として）
-```csv
-class_id,teacher_name,teacher_email
-CL001,田中先生,tanaka@school.jp
-CL002,鈴木先生,suzuki@school.jp
-```
-
-#### 5.1.4 保護者データ
-```csv
-seito_id,parent_name,parent_initial_email,parent_initial_password
-S001,山田一郎,yamada-init@temp.school.jp,password123
-S002,佐藤一郎,sato-init@temp.school.jp,password456
-```
-**注意事項:**
-- CSVファイル内のparent_initial_passwordは平文
-- インポート処理でbcrypt暗号化してDBに保存
-- parent_emailは初回ログイン時に保護者が登録
-
-### 5.2 インポート処理フロー
-```
-1. CSVファイルアップロード
-   ↓
-2. ファイル形式チェック（拡張子、サイズ）
-   ↓
-3. CSVパース
-   ↓
-4. データバリデーション
-   ↓
-5. エラーがあればプレビューで表示
-   ↓
-6. 問題なければDBトランザクション開始
-   ↓
-7. 一括挿入/更新
-   ↓
-8. コミット/ロールバック
-```
-
-## 6. セキュリティ設計
-
-### 6.1 認証セキュリティ
-- パスワード: bcrypt（cost=12）
-- セッション: httponly, secure, samesite=strict
-- CSRF トークン: 全POST/PUT/DELETEリクエスト
-- 2段階認証コード: 10分間有効、6桁数字、使用後削除
-
-### 6.2 認可設計
-- 管理者: 全機能アクセス可
-- 保護者: 自分の子供の欠席連絡のみ
-
-### 6.3 入力サンプル検証
-- XSS対策: Laravel自動エスケープ
-- SQLインジェクション対策: Eloquent ORM使用
-- ファイルアップロード: MIME type検証、サイズ制限（2MB）
-
-## 7. メール設計
-
-### 7.1 2段階認証メール
-```
-件名: 【欠席連絡システム】認証コード
-
-本文:
-{name} 様
-
-ログイン認証コードは以下の通りです。
-
-認証コード: {code}
-
-このコードは10分間有効です。
-```
-
-### 7.2 パスワードリセットメール
-```
-件名: 【欠席連絡システム】パスワードリセット
-
-本文:
-{name} 様
-
-パスワードリセットのリクエストを受け付けました。
-以下のリンクからパスワードを再設定してください。
-
-{reset_url}
-
-このリンクは24時間有効です。
-```
-
-## 8. エラーハンドリング設計
-
-### 8.1 HTTPステータスコード
-- 200: 成功
-- 201: 作成成功
-- 400: バリデーションエラー
-- 401: 認証エラー
-- 403: 権限エラー
-- 404: リソース不存在
-- 422: バリデーションエラー（詳細付き）
-- 500: サーバーエラー
-
-### 8.2 エラーレスポンス形式
-```json
-{
-  "message": "エラーメッセージ",
-  "errors": {
-    "field_name": ["エラー詳細"]
-  }
-}
-```
-
-## 9. テスト設計
-
-### 9.1 単体テスト
-- Model: リレーション、スコープ
-- Validation: 各バリデーションルール
-- Service: CSVインポート、2段階認証
-
-### 9.2 機能テスト
-- 認証フロー
-- CRUD操作
-- CSVインポート
-- 権限チェック
-
-## 10. パフォーマンス最適化
-
-### 10.1 データベース
-- Eager Loading（N+1問題回避）
-- インデックス活用
-- ページネーション（1ページ20件）
-
-### 10.2 フロントエンド
-- コンポーネントの遅延読み込み
-- 画像最適化
-- Viteによるビルド最適化
-
-## 12. バグ修正設計（2026-02-28）: 初回ログインメール登録フロー
-
-### 12.1 問題の根本原因
-`auth.js` の `parentLogin` アクションが `requires_email_registration: true` を受け取っても無視し、
-`直接ログイン成功` のコードパスを通るため、ストアもコンポーネントも2FA/メール登録画面に遷移しない。
-
-### 12.2 修正対象ファイル（フロントエンドのみ）
-
-| ファイル | 変更種別 | 内容 |
-|---|---|---|
-| `stores/auth.js` | 修正 | `needsEmailRegistration` 状態追加、`parentLogin` で処理分岐追加 |
-| `pages/auth/ParentLogin.vue` | 修正 | `requires_email_registration` 時のルーティング処理追加 |
-| `pages/auth/ParentEmailRegister.vue` | 新規作成 | メールアドレス登録画面 |
-| `router/index.js` | 修正 | `/parent/register-email` ルート追加 |
-
-### 12.3 ログインフロー設計（修正後）
-
-```
-POST /api/parent/login
-        │
-        ├─ requires_email_registration: true
-        │       → /parent/register-email へ遷移
-        │               │
-        │               └─ POST /api/parent/register-email
-        │                       → requires_2fa: true
-        │                               → /parent/verify-2fa へ遷移
-        │
-        ├─ requires_2fa: true
-        │       → /parent/verify-2fa へ遷移（2回目以降）
-        │
-        └─ それ以外（後方互換性）
-                → /parent/dashboard へ遷移
-```
-
-### 12.4 auth.js ストア変更設計
-
-```js
-// state に追加
-needsEmailRegistration: false,
-
-// parentLogin アクション 分岐追加
-if (response.data.requires_email_registration) {
-  this.needsEmailRegistration = true;
-  this.guard = 'parent';
-  this.loginType = 'parent';
-  return response.data;
-}
-```
-
-### 12.5 ParentEmailRegister.vue 設計
-
-- `parent_email` 入力フォーム（email型）
-- POST `/api/parent/register-email`
-- 成功後 → `router.push({ name: 'parent.verify2fa', query: { email } })`
-- エラー表示（重複メール等）
-- バリデーション: 必須・email形式
-
-### 12.6 ルート追加設計
-
-```js
-{
-  path: '/parent/register-email',
-  component: GuestLayout,
-  children: [{
-    path: '',
-    name: 'parent.registerEmail',
-    component: ParentEmailRegister,
-    meta: { guest: true }
-  }]
-}
-```
-
-## 13. 機能追加設計（2026-03-01）
-
-### 13.1 欠席連絡→担任メール通知（classes.teacher_email 利用）
-
-#### 問題
-`AbsenceNotificationService::notifyTeacher()` が担任を `admins` テーブルから検索しているため、
-管理者未登録の担任にはメールが届かない。`classes.teacher_email` を直接使うべき。
-
-#### 修正対象ファイル
-- `app/Services/AbsenceNotificationService.php` のみ修正
+#### 変更箇所
+app/Services/CsvImportService.php の importAdmins() メソッド
 
 #### 変更内容
-```php
-// 変更前
-$teacher = Admin::where('class_id', $class->class_id)
-              ->where('is_super_admin', false)->first();
-if (!$teacher) { return false; }
-Mail::raw($body, fn($msg) => $msg->to($teacher->email)->subject($subject));
 
-// 変更後
-$teacherEmail = $class->teacher_email;
-$teacherName  = $class->teacher_name;
-if (empty($teacherEmail)) {
-    Log::warning('欠席通知: teacher_emailが未設定');
-    return false;
-}
-Mail::raw($body, fn($msg) => $msg->to($teacherEmail)->subject($subject));
-```
+1. バリデーションに class_id（nullable/string）と is_super_admin（nullable）を追加
+2. is_super_admin の正規化ロジック:
+   - "true" / "1" / "yes" (大文字小文字不問) → boolean true
+   - それ以外（空・"false"・"0" 等） → boolean false
+3. class_id の処理:
+   - 空欄 → null（警告なし）
+   - 存在するクラスID → そのままセット
+   - 存在しないクラスID → null でセット ＋ warnings[] に追記
+4. updateOrCreate の attributes に class_id / is_super_admin を追加
+5. 戻り値に warnings[] キーを追加
 
-#### メール本文の宛先部分
-- `{$teacher->name} 先生` → `{$teacherName} 先生` に変更
+#### 戻り値変更
 
----
+: [ success, errors, total ]
+: [ success, errors, warnings, total ]
 
-### 13.2 保護者ダッシュボードでの2FA用メールアドレス再設定
+warnings 例:
+[
+  { "row": 3, "message": "class_id "INVALID" が存在しないため null で登録しました" }
+]
 
-#### APIエンドポイント設計（バックエンド）
+### A-2. CsvImportController::downloadTemplate() の変更
 
-| メソッド | パス | 処理 |
-|---|---|---|
-| POST | `/api/parent/request-email-change` | 新メールに確認コード送信 |
-| POST | `/api/parent/confirm-email-change` | コード検証・parent_email更新 |
+admins テンプレートの定義を変更:
+: headers => [name, email, password]
+: headers => [name, email, password, class_id, is_super_admin]
+        sample  => [管理者名, admin@seiei.ac.jp, seiei2026, 1TOKUSHIN, false]
+                   （スーパー管理者サンプル行も追加: [スーパー管理者, super@seiei.ac.jp, seiei2026, , true]）
+ 2行のサンプルを出力する
 
-**POST `/api/parent/request-email-change`**
-```
-リクエスト: { new_email: string }
-バリデーション: required|email|unique:parents,parent_email（自分を除く）
-処理:
-  1. TwoFactorService で new_email 宛にコード生成・送信
-  2. セッションに new_email_pending を保存
-レスポンス: { message, email }
-```
+### A-3. CsvImport.vue の UI 更新
 
-**POST `/api/parent/confirm-email-change`**
-```
-リクエスト: { code: string (6桁) }
-処理:
-  1. セッションから new_email_pending 取得
-  2. TwoFactorService::verify(new_email, code, 'parent') 検証
-  3. 検証成功後 parent_email を更新・セッションから削除
-レスポンス: { message, email }
-```
-
-#### コントローラー
-`ParentLoginController` に2メソッド追加（既存コントローラーへの追記で対応）
-
-#### フロントエンド設計（Dashboard.vue）
-
-Dashboard.vue にメール変更セクションを追加（折りたたみ可能なカード形式）：
-
-**Step 1: 新メールアドレス入力フォーム**
-- 現在のメールアドレス表示
-- 新しいメールアドレス入力（email型）
-- 「確認コードを送信」ボタン → POST `/api/parent/request-email-change`
-
-**Step 2: 確認コード入力フォーム（Step1成功後に表示）**
-- 「{新メール}に確認コードを送信しました」メッセージ
-- 6桁コード入力
-- 「変更する」ボタン → POST `/api/parent/confirm-email-change`
-- 成功後: 表示をリセットし「変更完了」メッセージ
+.claude_workflow .editorconfig .env .env.example .gitattributes .github .gitignore 2FA_VERIFICATION_GUIDE.md CLAUDE.md CSV_IMPORT_GUIDE.md PARENT_CSV_FORMAT_CHANGE.md PRESENTATION.md README.md TESTING_REPORT.md app artisan bootstrap code composer.json composer.lock config database expires_at lang node_modules package-lock.json package.json parent_email parent_email, parent_name phpunit.xml public resources routes storage tests vendor vite.config.js  ul リストに以下を追加:
+- class_id (担当クラスID - 担任の場合)
+- is_super_admin (true/false)
 
 ---
 
-### 13.3 管理者CSVインポート：クラスデータ追加
+## 機能 B: 欠席記録 CSV ダウンロード
 
-#### バックエンド
+### B-1. AbsenceController::export() メソッド追加
 
-**`CsvImportController::downloadTemplate()` に `classes` テンプレート追加**
-```php
-'classes' => [
-    'filename' => 'classes_template.csv',
-    'headers' => ['class_id', 'class_name', 'teacher_name', 'teacher_email', 'year_id'],
-    'sample'  => ['1TOKUSHIN', '1特進', '田中先生', 'tanaka@seiei.ac.jp', '2026'],
-],
-```
+#### 処理フロー
 
-**ルート確認**
-`/api/admin/import/classes` → `ImportController::importClasses()` は既に実装済み（変更不要）
+1. 認証チェック（既存ミドルウェアで保証済み）
+2. フィルタークエリ構築（index() と同一ロジック）
+   - get() でページネーションなし全件取得
+3. CSV ヘッダー行出力
+4. 各レコードを CSV 行に変換してストリーミング出力
 
-#### フロントエンド
+#### 出力 CSV 仕様
 
-`import/Index.vue` の変更：
-1. `selectedFiles` / `uploading` / `results` の reactive オブジェクトに `classes` キーを追加
-2. `<template>` の3カラムグリッドを4カラムに変更し、クラスデータカードを追加
-3. `getTypeName()` に `classes: 'クラスデータ'` を追加
-4. テンプレートダウンロードは既存の `downloadTemplate('classes')` を呼ぶだけでOK
+ls:
+,学年,クラス,出席番号,氏名,区分,理由,予定時刻
 
----
+#
+ls :
+- 日付: absence_date を YYYY/MM/DD 形式
+- 学年: class_name の先頭1文字 + "年" （例: "1情会" → "1年"）
+- クラス: student.classModel.class_name
+- 出席番号: student.seito_number
+- 氏名: student.seito_name
+- 区分: division
+- 理由: reason（改行・カンマを考慮しダブルクォート囲み）
+- 予定時刻: scheduled_time（空の場合は空文字）
 
-## 11. 開発フェーズ計画
+#ls
+ UTF-8 BOM (ï»¿) を先頭に付与
 
-### Phase 1: 環境構築（完了）
-- Laravel 12プロジェクト作成 ✓
+#### レスポンスヘッダー
 
-### Phase 2: 基盤構築
-- データベース設計・マイグレーション
-- 認証システム構築
-- 2段階認証実装
+Content-Type: text/csv; charset=UTF-8
+Content-Disposition: attachment; filename="absences_YYYY-MM-DD.csv"
 
-### Phase 3: 管理者機能
-- 生徒CRUD
-- 保護者CRUD
-- クラスCRUD
-- CSVインポート
+#### 実装上の重点
 
-### Phase 4: 保護者機能
-- 欠席連絡CRUD
-- 履歴表示
+index() との差分は paginate() → get() のみ。
+.claude_workflow .editorconfig .env .env.example .gitattributes .github .gitignore 2FA_VERIFICATION_GUIDE.md CLAUDE.md CSV_IMPORT_GUIDE.md PARENT_CSV_FORMAT_CHANGE.md PRESENTATION.md README.md TESTING_REPORT.md app artisan bootstrap code composer.json composer.lock config database expires_at lang node_modules package-lock.json package.json parent_email parent_email, parent_name phpunit.xml public resources routes storage tests vendor vite.config.js  private メソッド buildAbsenceQuery() に切り出して共通化する。
 
-### Phase 5: フロントエンド
-- Vue.js環境構築
-- Tailwind CSS設定
-- コンポーネント実装
+### B-2. ルート追加 (routes/api.php)
 
-### Phase 6: テスト・調整
-- 機能テスト
-- UIテスト
-- パフォーマンステスト
+--host=0.0.0.0 absences ルート群に追加:
+Route::get("/absences/export", [AdminAbsenceController::class, "export"]);
 
-## 12. 技術的課題と解決策
+ /absences/{id} の前に定義すること（Laravelのルート優先順位のため）
 
-### 12.1 課題: 保護者の認証フロー管理
-**解決策**: 
-- parent_initial_email/parent_initial_password: ログイン認証用（parent_initial_passwordはbcrypt暗号化）
-- parent_email: 2段階認証コード送信先（必須登録）
-- 初回ログイン時にparent_emailが未登録の場合、メール登録画面へ誘導
-- 2回目以降も同じ初期認証情報でログイン → 登録済みparent_emailに2段階認証コード送信
+### B-3. absences/List.vue の UI 変更
 
-### 12.2 課題: 2段階認証のセッション管理
-**解決策**:
-- 一時セッション（2FA未完了）と本セッション（2FA完了）を分離
-- ミドルウェアでチェック
+#### ダウンロードボタン追加位置
 
-### 12.3 課題: CSVインポートの大量データ処理
-**解決策**:
-- チャンク処理（1000件ずつ）
-- トランザクション管理
-- バックグラウンドジョブ（必要に応じて）
+#Ls
+ls:
 
-## 13. 未決定事項・今後の検討課題
+<div class="flex justify-end mb-2">
+  <Button variant="secondary" @click="downloadCsv" :disabled="downloading">
+    {{ downloading ? "ダウンロード中..." : "CSVダウンロード" }}
+  </Button>
+</div>
 
-1. メール送信方法（SMTP設定）
-2. 本番環境のサーバー構成
-3. バックアップ戦略
-4. ログ管理方針
-5. 複数子供を持つ保護者のUI設計
+#### downloadCsv() 関数
+
+1. downloading = true
+2. 現在の filters（date_from, date_to, class_name, division, grade）と showAllClasses をパラメータに
+3. axios.get("/api/admin/absences/export", { params, responseType: "blob" }) で取得
+4. URL.createObjectURL(blob) で一時URLを作成
+5. <a> 要素を動的生成して .click() → 自動ダウンロード
+6. URL.revokeObjectURL() で解放
+7. downloading = false（finally）
 
 ---
 
-## 14. 年度切り替え機能設計（2026/04/04追加）
+## 変更ファイル一覧と変更規模
 
-### 14.1 設計方針
-
-`class_id` は `classes` テーブルで UNIQUE 制約があり、年度をまたいで同じ文字列 (`1TOKUSHIN` 等) を使う。
-よって **上書き更新方式** を採用する。
-
-| 操作 | 手段 | 備考 |
-|------|------|------|
-| クラスデータ更新（担任情報） | 既存のクラスCSVインポート | `year_id=2026`, `teacher_name`, `teacher_email` を上書き |
-| 生徒クラス一括更新 | **新規実装** | `seito_id, class_id` の CSV で `students.class_id` を更新 |
-| 新入生追加 | 既存の生徒CSVインポート | 変更不要 |
-| 保護者データ | 変更なし | 年度をまたいで継続利用 |
-
-### 14.2 新規実装: 生徒クラス一括更新
-
-#### 14.2.1 CSVフォーマット
-```csv
-seito_id,class_id
-1001,2TOKUSHIN
-1002,2SHINGAKU
-1003,2CHORI
-```
-
-#### 14.2.2 バックエンド設計
-
-**`CsvImportService::importStudentClasses(array $data): array`**
-
-```
-処理フロー:
-  foreach $data as $row
-    1. バリデーション: seito_id=required|string, class_id=required|string
-       → 失敗 → $errors[] に追加してスキップ
-    2. students テーブルに seito_id が存在するか確認
-       → 存在しない → $skipped[] に理由付きで追加してスキップ
-    3. classes テーブルに class_id が存在するか確認
-       → 存在しない → $skipped[] に理由付きで追加してスキップ
-    4. Student::where('seito_id', $row['seito_id'])->update(['class_id' => $row['class_id']])
-       → $success++
-
-戻り値:
-  [
-    'success' => int,   // 更新成功件数
-    'skipped' => int,   // スキップ件数（seito_id/class_id不在）
-    'errors'  => [],    // バリデーションエラー行の詳細
-    'total'   => int,   // CSV総行数
-  ]
-
-トランザクション:
-  DB::beginTransaction() で全体を囲む
-  想定外の例外はロールバックして上位へ rethrow
-  バリデーション/不在によるスキップは正常フロー（ロールバックしない）
-```
-
-**`CsvImportController::importStudentClasses(Request $request): JsonResponse`**
-
-```
-1. $request->validate(['file' => 'required|file|mimes:csv,txt|max:2048'])
-2. $this->csvImportService->validateCSVFile($file)（既存メソッド流用）
-3. $data = $this->csvImportService->parseCSV($file->getRealPath())（既存メソッド流用）
-4. $result = $this->csvImportService->importStudentClasses($data)
-5. レスポンス:
-   {
-     "message": "{success}件の生徒クラスを更新しました（スキップ: {skipped}件）",
-     "result": { success, skipped, errors, total }
-   }
-```
-
-**ルート追加** (`routes/api.php` の admin 認証グループ内)
-```php
-Route::post('/import/student-classes', [CsvImportController::class, 'importStudentClasses']);
-```
-
-#### 14.2.3 フロントエンド設計
-
-**`CsvImport.vue` への追加**
-
-`files` / `uploading` / `results` の reactive オブジェクトに `'student-classes'` キーを追加。
-
-既存の `importFile(type)` 関数は `adminStore.importCsv(type, file)` を呼ぶだけで、
-内部は `/api/admin/import/${type}` に POST する。`type = 'student-classes'` を渡すだけで動作する。
-**`admin.js` の変更は不要。**
-
-UIカード（第3行に単独配置、もしくは既存の第2行グリッドに追加）:
-
-```
-┌──────────────────────────────────────┐
-│ 生徒クラス一括更新                    │
-│ ───────────────────────────────────  │
-│ CSVファイル形式:                      │
-│  • seito_id (生徒ID)                  │
-│  • class_id (新しいクラスID)           │
-│                                      │
-│ ⚠️ 年度切り替え時に使用してください。   │
-│    先にクラスCSVをインポートすること。  │
-│                                      │
-│ [📁 ファイルを選択]                   │
-│ [⬆️ インポート実行]                  │
-│                                      │
-│ 結果: 更新 N件 / スキップ M件         │
-└──────────────────────────────────────┘
-```
-
-**結果表示**: 成功時に `success` 件数と `skipped` 件数の両方を表示する（他のインポートと差別化）。
-
-### 14.3 既存インポート機能で対応するクラスCSV更新
-
-既存の `ImportController::importClasses()` → `CsvImportService::importClasses()` が
-`ClassModel::updateOrCreate(['class_id' => $row['class_id']], [...])` を使っているため、
-**year_id=2026 の CSVをそのままインポートすれば担任情報が上書きされる**。
-追加実装不要。
-
-### 14.4 操作手順ドキュメント（README に記載する内容）
-
-```
-■ 年度切り替え手順（毎年4月）
-
-STEP 1: クラスデータ更新
-  - CSV形式: class_id, class_name, teacher_name, teacher_email, year_id
-  - year_id に新年度の値（例: 2026）を記入
-  - 管理画面 → CSVインポート → クラスインポート
-
-STEP 2: 生徒クラス一括更新
-  - CSV形式: seito_id, class_id
-  - 各生徒の新クラスIDを記入（例: 進級後のクラスID）
-  - 管理画面 → CSVインポート → 生徒クラス一括更新
-
-STEP 3: 新入生インポート
-  - 通常の生徒CSVインポートで1年生を追加
-```
-
-### 14.5 エラーハンドリング方針
-
-| ケース | 処理 |
-|--------|------|
-| seito_id が存在しない | スキップ（skipped カウント）、処理継続 |
-| class_id が存在しない | スキップ（skipped カウント）、処理継続 |
-| バリデーションエラー（必須項目欠落等） | errors に追加、処理継続 |
-| DB例外等の予期せぬエラー | ロールバック後に 500 で返す |
-
----
-
-## 15. 機能修正設計 - 生徒クラス一括更新に seito_number 追加（2026/04/04）
-
-### 15.1 変更対象ファイル一覧
-
-| ファイル | 変更種別 | 変更内容 |
+| ファイル | 変更種別 | 変更規模 |
 |---------|---------|---------|
-| `app/Services/CsvImportService.php` | 修正 | `importStudentClasses()` のバリデーションと update 対象を変更 |
-| `resources/js/pages/admin/import/Index.vue` | 修正 | 「生徒クラス一括更新」カードのフォーマット説明に `seito_number` を追記 |
-| `README.md` | 修正 | 生徒クラス更新CSV のサンプルに `seito_number` カラムを追記 |
+| app/Services/CsvImportService.php | 修正 | importAdmins() 約30行追記・変更 |
+| app/Http/Controllers/Admin/CsvImportController.php | 修正 | テンプレート定義3行変更 |
+| app/Http/Controllers/Admin/AbsenceController.php | 修正 | export()追加 約50行、buildAbsenceQuery()切り出し |
+| routes/api.php | 修正 | 1行追加 |
+| resources/js/pages/admin/CsvImport.vue | 修正 | 列説明2行追加 |
+| resources/js/pages/admin/absences/List.vue | 修正 | ボタン追加 + downloadCsv()追加 約25行 |
+| README.md | 修正 | CSVインポート仕様・エクスポート機能の説明追記 |
 
-### 15.2 CsvImportService::importStudentClasses() の変更設計
+---
 
-**バリデーション変更**
-```php
-// 変更前
-'seito_id'    => 'required|string',
-'class_id'    => 'required|string',
+## 設計上の判断・注意点
 
-// 変更後
-'seito_id'     => 'required|string',
-'class_id'     => 'required|string',
-'seito_number' => 'required|integer|min:1',
-```
+1. buildAbsenceQuery() の切り出し
+   index() と export() でフィルター条件が完全に同一であるため、
+   private メソッドに切り出してDRYにする。
+   これにより将来のフィルター追加時の修正箇所が1箇所になる。
 
-**update 対象の変更**
-```php
-// 変更前
-Student::where('seito_id', $row['seito_id'])
-    ->update(['class_id' => $row['class_id']]);
+2. メモリ効率
+   全件取得のため大量データでメモリを消費しうるが、
+   学校の欠席データは月数百件程度が上限と想定。
+   streamDownload() を使うことでメモリ使用を最小化する。
 
-// 変更後
-Student::where('seito_id', $row['seito_id'])
-    ->update([
-        'class_id'     => $row['class_id'],
-        'seito_number' => (int) $row['seito_number'],
-    ]);
-```
+3. CSVインジェクション対策
+   セルの先頭が = / + / - / @ で始まる場合はタブ文字を先頭に付加する。
+   理由フィールドはユーザー入力のため特に注意が必要。
 
-> `seito_number` は Validator の `integer` ルールを通過した後、`(int)` キャストして update する。
-> CSV の値は文字列として渡されるため明示的なキャストが必要。
-
-**コメント更新**
-```php
-// CSVフォーマット: seito_id, class_id, seito_number
-```
-
-### 15.3 フロントエンド変更設計（Index.vue）
-
-「生徒クラス一括更新」カードの `<ul>` に1行追加するのみ。
-
-```html
-<!-- 変更前 -->
-<li>seito_id （生徒ID）</li>
-<li>class_id （新しいクラスID）</li>
-
-<!-- 変更後 -->
-<li>seito_id （生徒ID）</li>
-<li>class_id （新しいクラスID）</li>
-<li>seito_number （新しい出席番号）</li>
-```
-
-### 15.4 README.md 変更設計
-
-生徒クラス更新CSVのサンプルに `seito_number` カラムを追加する。
-
-```csv
-// 変更前
-seito_id,class_id
-1001,2TOKUSHIN
-1002,2SHINGAKU
-
-// 変更後
-seito_id,class_id,seito_number
-1001,2TOKUSHIN,3
-1002,2SHINGAKU,1
-```
-
-年度切り替え手順（STEP 2）の説明文にも `seito_number` への言及を追記する。
+4. ルート定義順序
+   /absences/export は /absences/{id} より前に定義しないと
+   "export" が {id} として解釈される。必ず先に定義する。

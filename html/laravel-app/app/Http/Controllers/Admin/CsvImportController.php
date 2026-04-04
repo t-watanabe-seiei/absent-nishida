@@ -161,8 +161,11 @@ class CsvImportController extends Controller
             ],
             'admins' => [
                 'filename' => 'admins_template.csv',
-                'headers' => ['name', 'email', 'password'],
-                'sample' => ['管理者', 'admin@seiei.ac.jp', 'seiei2026'],
+                'headers'  => ['name', 'email', 'password', 'class_id', 'is_super_admin'],
+                'samples'  => [
+                    ['担任教師', 'teacher1tokushin@seiei.ac.jp', 'seiei2026', '1TOKUSHIN', 'false'],
+                    ['スーパー管理者', 'admin@seiei.ac.jp', 'seiei2026', '', 'true'],
+                ],
             ],
             'classes' => [
                 'filename' => 'classes_template.csv',
@@ -176,10 +179,14 @@ class CsvImportController extends Controller
         }
 
         $template = $templates[$type];
-        
+
         $csv = fopen('php://temp', 'r+');
         fputcsv($csv, $template['headers']);
-        fputcsv($csv, $template['sample']);
+        // samples（複数行）か sample（1行）かを吸収する
+        $sampleRows = $template['samples'] ?? [$template['sample']];
+        foreach ($sampleRows as $sampleRow) {
+            fputcsv($csv, $sampleRow);
+        }
         rewind($csv);
         
         $content = stream_get_contents($csv);

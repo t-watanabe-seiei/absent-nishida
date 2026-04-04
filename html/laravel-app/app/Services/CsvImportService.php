@@ -353,55 +353,78 @@ class CsvImportService
      */
     public function importAdmins(array $data): array
     {
-        $errors = [];
-        $success = 0;
-        
+        $errors   = [];
+        $warnings = [];
+        $success  = 0;
+
         DB::beginTransaction();
-        
+
         try {
             foreach ($data as $index => $row) {
                 $validator = Validator::make($row, [
-                    'name' => 'required|string|max:255',
-                    'email' => 'nullable|email|max:255',
-                    'password' => 'required|string|min:6',
+                    'name'           => 'required|string|max:255',
+                    'email'          => 'nullable|email|max:255',
+                    'password'       => 'required|string|min:6',
+                    'class_id'       => 'nullable|string|max:255',
+                    'is_super_admin' => 'nullable|string',
                 ]);
-                
+
                 if ($validator->fails()) {
                     $errors[] = [
-                        'row' => $index + 2,
-                        'data' => $row,
+                        'row'    => $index + 2,
+                        'data'   => $row,
                         'errors' => $validator->errors()->all(),
                     ];
                     continue;
                 }
-                
+
+                // is_super_admin の正規化: "true" / "1" / "yes" → true、それ以外 → false
+                $rawFlag      = strtolower(trim($row['is_super_admin'] ?? ''));
+                $isSuperAdmin = in_array($rawFlag, ['true', '1', 'yes'], true);
+
+                // class_id の存在確認
+                $classId = !empty($row['class_id']) ? trim($row['class_id']) : null;
+                if ($classId !== null) {
+                    $classExists = ClassModel::where('class_id', $classId)->exists();
+                    if (!$classExists) {
+                        $warnings[] = [
+                            'row'     => $index + 2,
+                            'message' => "class_id \"{$classId}\" が存在しないため null で登録しました",
+                        ];
+                        $classId = null;
+                    }
+                }
+
                 // emailがある場合はそれをユニークキーとし、ない場合はnameをユニークキーとする
                 $uniqueKey = !empty($row['email']) ? ['email' => $row['email']] : ['name' => $row['name']];
-                
+
                 // 既存チェック（更新または新規作成）
                 Admin::updateOrCreate(
                     $uniqueKey,
                     [
-                        'name' => $row['name'],
-                        'email' => $row['email'] ?? null,
-                        'password' => Hash::make($row['password']),
+                        'name'           => $row['name'],
+                        'email'          => $row['email'] ?? null,
+                        'password'       => Hash::make($row['password']),
+                        'class_id'       => $classId,
+                        'is_super_admin' => $isSuperAdmin,
                     ]
                 );
-                
+
                 $success++;
             }
-            
+
             DB::commit();
-            
+
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
         }
-        
+
         return [
-            'success' => $success,
-            'errors' => $errors,
-            'total' => count($data),
+            'success'  => $success,
+            'errors'   => $errors,
+            'warnings' => $warnings,
+            'total'    => count($data),
         ];
     }
 

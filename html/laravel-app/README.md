@@ -142,6 +142,7 @@ initial_email + initial_password
 - 本日の欠席・遅刻一覧（担任はクラス絞り込み）
 - 日付範囲・クラス・区分でフィルタ可能
 - 欠席連絡の月次一覧・統計グラフ・クラス別集計
+- フィルター条件に合う全件を UTF-8 BOM 付き CSV でダウンロード可能（項目：日付・学年・クラス・出席番号・氏名・区分・理由・予定時刻）
 
 ### ダッシュボード
 - クラス数・生徒数・保護者数・本日の欠席/遅刻数を表示
@@ -225,6 +226,9 @@ name,email,password,class_id,is_super_admin
 スーパー管理者,admin@seiei.ac.jp,password,,true
 田中先生,tanaka@seiei.ac.jp,password,1TOKUSHIN,false
 ```
+- `email` 重複時は上書き更新
+- `class_id` は担任の担当クラス ID。存在しない値を指定した場合は `null` で登録され警告が返る
+- `is_super_admin` は `true` / `1` / `yes` のいずれかで真。それ以外は `false`
 
 ### クラスデータ（`/api/admin/import/classes`）
 ```csv

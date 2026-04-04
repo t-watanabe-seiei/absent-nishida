@@ -76,6 +76,7 @@ Route::prefix('admin')->middleware('web')->group(function () {
         Route::get('/absences/stats', [AdminAbsenceController::class, 'stats']);
         Route::get('/absences/monthly', [AdminAbsenceController::class, 'monthly']);
         Route::get('/absences/today', [AdminAbsenceController::class, 'today']);
+        Route::get('/absences/export', [AdminAbsenceController::class, 'export']);
         Route::get('/absences', [AdminAbsenceController::class, 'index']);
         Route::get('/absences/{id}', [AdminAbsenceController::class, 'show']);
         

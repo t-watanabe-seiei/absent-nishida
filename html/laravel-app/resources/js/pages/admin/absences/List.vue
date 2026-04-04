@@ -146,7 +146,7 @@
     
     <!-- データテーブル -->
     <div class="bg-white rounded-lg shadow overflow-hidden">
-      <div class="px-6 py-4 border-b border-gray-200">
+      <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
         <h2 class="text-lg font-semibold">
           <span v-if="isFilteredByToday" class="text-red-600">📌 本日の欠席</span>
           <span v-else>欠席一覧</span>
@@ -162,6 +162,9 @@
             </template>
           </span>
         </h2>
+        <Button variant="secondary" size="sm" :disabled="downloading" @click="downloadCsv">
+          {{ downloading ? 'ダウンロード中...' : '📥 CSVダウンロード' }}
+        </Button>
       </div>
       
       <div v-if="loading" class="p-8 text-center text-gray-500">
@@ -267,6 +270,7 @@ const stats = ref({
 const monthlyStats = ref([]);
 const showOlderMonths = ref(false);
 const loading = ref(false);
+const downloading = ref(false);
 const showAllClasses = ref(false);
 
 const isSuperAdmin = computed(() => {
@@ -465,6 +469,43 @@ const filterByToday = () => {
 
 const changePage = (page) => {
   fetchAbsences(page);
+};
+
+const downloadCsv = async () => {
+  downloading.value = true;
+  try {
+    const params = {
+      date_from: filters.date_from || undefined,
+      date_to: filters.date_to || undefined,
+      class_name: filters.class_name || undefined,
+      division: filters.division || undefined,
+      grade: filters.grade || undefined,
+    };
+    if (showAllClasses.value) {
+      params.show_all_classes = 'true';
+    }
+
+    const response = await axios.get('/api/admin/absences/export', {
+      params,
+      responseType: 'blob',
+    });
+
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const url = URL.createObjectURL(new Blob([response.data], { type: 'text/csv; charset=UTF-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `absences_${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('CSVダウンロードエラー:', error);
+    alert('CSVのダウンロードに失敗しました');
+  } finally {
+    downloading.value = false;
+  }
 };
 
 const toggleClassFilter = () => {

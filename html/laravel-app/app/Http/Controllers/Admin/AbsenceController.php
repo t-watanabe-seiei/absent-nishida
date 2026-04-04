@@ -29,13 +29,93 @@ class AbsenceController extends Controller
      */
     public function index(Request $request)
     {
+        $query = $this->buildAbsenceQuery($request);
+
+        $absences = $query->orderBy('absence_date', 'desc')
+                         ->orderBy('created_at', 'desc')
+                         ->paginate($request->get('per_page', 20));
+
+        return response()->json($absences);
+    }
+
+    /**
+     * 欠席一覧 CSV エクスポート
+     * フィルター条件に合う全件を UTF-8 BOM 付き CSV でダウンロード
+     */
+    public function export(Request $request)
+    {
+        $query = $this->buildAbsenceQuery($request);
+
+        $absences = $query->orderBy('absence_date', 'desc')
+                          ->orderBy('created_at', 'desc')
+                          ->get();
+
+        $filename = 'absences_' . Carbon::today()->format('Y-m-d') . '.csv';
+
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ];
+
+        $callback = function () use ($absences) {
+            $handle = fopen('php://output', 'w');
+
+            // UTF-8 BOM（Excelで日本語が文字化けしないよう付与）
+            fwrite($handle, "\xEF\xBB\xBF");
+
+            // ヘッダー行
+            fputcsv($handle, ['日付', '学年', 'クラス', '出席番号', '氏名', '区分', '理由', '予定時刻']);
+
+            foreach ($absences as $item) {
+                $className = $item->student->classModel->class_name ?? '';
+                // 学年: クラス名の先頭1文字 + "年"
+                $grade = preg_match('/^(\d)/', $className, $m) ? $m[1] . '年' : '-';
+
+                $row = [
+                    $item->absence_date
+                        ? Carbon::parse($item->absence_date)->format('Y/m/d')
+                        : '-',
+                    $grade,
+                    $className ?: '-',
+                    $item->student->seito_number ?? '-',
+                    $item->student->seito_name ?? '-',
+                    $item->division ?? '',
+                    self::sanitizeCsvCell($item->reason ?? ''),
+                    $item->scheduled_time ?? '',
+                ];
+
+                fputcsv($handle, $row);
+            }
+
+            fclose($handle);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * CSVインジェクション対策: 先頭が = + - @ の場合はタブを付加
+     */
+    private static function sanitizeCsvCell(string $value): string
+    {
+        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@'], true)) {
+            return "\t" . $value;
+        }
+        return $value;
+    }
+
+    /**
+     * 欠席クエリをフィルター条件に基づいて構築する共通メソッド
+     */
+    private function buildAbsenceQuery(Request $request)
+    {
         $admin = Auth::guard('admin')->user();
         $query = Absence::with(['student.classModel'])
-            ->where('is_deleted', false); // 削除されていないもののみ
+            ->where('is_deleted', false);
 
         // 担任の場合は、show_all_classesパラメータがない限り自分のクラスのみ表示
         $showAllClasses = $request->has('show_all_classes') && $request->show_all_classes === 'true';
-        
+
         if ($admin && !$admin->is_super_admin && $admin->class_id && !$showAllClasses) {
             $query->whereHas('student', function ($q) use ($admin) {
                 $q->where('class_id', $admin->class_id);
@@ -83,11 +163,7 @@ class AbsenceController extends Controller
             });
         }
 
-        $absences = $query->orderBy('absence_date', 'desc')
-                         ->orderBy('created_at', 'desc')
-                         ->paginate($request->get('per_page', 20));
-
-        return response()->json($absences);
+        return $query;
     }
 
     /**
