@@ -26,7 +26,7 @@ class StudentSeeder extends Seeder
             ['seito_id' => 1006, 'seito_name' => '伊藤さくら', 'seito_number' => 1, 'class_id' => '1CHORI', 'seito_initial_email' => '1006@seiei.ac.jp'],
             ['seito_id' => 1007, 'seito_name' => '渡辺大輔', 'seito_number' => 2, 'class_id' => '1CHORI', 'seito_initial_email' => '1007@seiei.ac.jp'],
             
-            // 1年情報会計
+            // 1年情会
             ['seito_id' => 1008, 'seito_name' => '中村愛', 'seito_number' => 1, 'class_id' => '1JOHO', 'seito_initial_email' => '1008@seiei.ac.jp'],
             ['seito_id' => 1009, 'seito_name' => '小林翔太', 'seito_number' => 2, 'class_id' => '1JOHO', 'seito_initial_email' => '1009@seiei.ac.jp'],
             
