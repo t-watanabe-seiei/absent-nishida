@@ -404,4 +404,74 @@ class CsvImportService
             'total' => count($data),
         ];
     }
+
+    /**
+     * 生徒クラス一括更新（年度切り替え用）
+     *
+     * CSVフォーマット: seito_id, class_id
+     */
+    public function importStudentClasses(array $data): array
+    {
+        $errors = [];
+        $skipped = 0;
+        $success = 0;
+
+        DB::beginTransaction();
+
+        try {
+            foreach ($data as $index => $row) {
+                $validator = Validator::make($row, [
+                    'seito_id'     => 'required|string',
+                    'class_id'     => 'required|string',
+                    'seito_number' => 'required|integer|min:1',
+                ]);
+
+                if ($validator->fails()) {
+                    $errors[] = [
+                        'row'    => $index + 2,
+                        'data'   => $row,
+                        'errors' => $validator->errors()->all(),
+                    ];
+                    continue;
+                }
+
+                // students テーブルに seito_id が存在するか確認
+                $student = Student::where('seito_id', $row['seito_id'])->first();
+
+                if (!$student) {
+                    $skipped++;
+                    continue;
+                }
+
+                // classes テーブルに class_id が存在するか確認
+                $classExists = ClassModel::where('class_id', $row['class_id'])->exists();
+
+                if (!$classExists) {
+                    $skipped++;
+                    continue;
+                }
+
+                Student::where('seito_id', $row['seito_id'])
+                    ->update([
+                        'class_id'     => $row['class_id'],
+                        'seito_number' => (int) $row['seito_number'],
+                    ]);
+
+                $success++;
+            }
+
+            DB::commit();
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+
+        return [
+            'success' => $success,
+            'skipped' => $skipped,
+            'errors'  => $errors,
+            'total'   => count($data),
+        ];
+    }
 }

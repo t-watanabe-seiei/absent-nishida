@@ -1,11 +1,109 @@
 # タスクリスト - 欠席連絡システム
 
-## タスク分類
-- 🔵 Phase 2: 基盤構築
-- 🟢 Phase 3: 管理者機能
-- 🟡 Phase 4: 保護者機能  
-- 🟣 Phase 5: フロントエンド
-- 🔴 Phase 6: テスト・調整
+## 既存フェーズ（完了済み）
+Phase 2〜5（基盤構築・管理者機能・保護者機能・フロントエンド）は実装完了。
+以降は 2026/04/04 追加タスクのみ記載する。
+
+---
+
+## 🟠 Phase 7: README.md 整備 ＋ 年度切り替え機能実装
+
+### タスク一覧
+
+| ID | タスク名 | 状態 | 依存 |
+|----|---------|------|------|
+| T7-1 | README.md を作成（システム全体の説明） | [✓] | なし |
+| T7-2 | CsvImportService に importStudentClasses() 追加 | [✓] | なし |
+| T7-3 | CsvImportController に importStudentClasses() 追加 | [✓] | T7-2 |
+| T7-4 | routes/api.php にルート追加 | [✓] | T7-3 |
+| T7-5 | CsvImport.vue に「生徒クラス一括更新」セクション追加 | [✓] | T7-4 |
+| T7-6 | 動作確認（php -l + tinker + 手動テスト） | [✓] | T7-5 |
+
+---
+
+### タスク T7-1: README.md 作成
+- **優先度**: 高
+- **対象ファイル**: `README.md`（白紙から全文書き起こし）
+- **内容**:
+  - [ ] プロジェクト概要・技術スタック
+  - [ ] セットアップ手順（clone → composer install → .env設定 → migrate → npm run build）
+  - [ ] ユーザー種別と認証フロー（管理者・保護者）
+  - [ ] 管理者機能一覧（生徒/クラス/保護者 CRUD、CSVインポート各種）
+  - [ ] 保護者機能一覧（欠席/遅刻連絡 CRUD、2FA、メール再設定）
+  - [ ] CSVインポート操作手順（各フォーマット一覧）
+  - [ ] 年度切り替え手順（STEP 1〜3）
+  - [ ] ディレクトリ構成の概要
+- **完了条件**: README.md が作成され、内容が正確である
+
+---
+
+### タスク T7-2: CsvImportService に importStudentClasses() 追加
+- **優先度**: 最高
+- **対象ファイル**: `app/Services/CsvImportService.php`
+- **内容**:
+  - [ ] `importStudentClasses(array $data): array` メソッドを追加
+  - [ ] バリデーション: `seito_id` required|string, `class_id` required|string
+  - [ ] `students` テーブルに `seito_id` が存在するか確認（なければ skipped）
+  - [ ] `classes` テーブルに `class_id` が存在するか確認（なければ skipped）
+  - [ ] `Student::where('seito_id', ...)->update(['class_id' => ...])` で更新
+  - [ ] 戻り値: `['success', 'skipped', 'errors', 'total']`
+  - [ ] `DB::beginTransaction()` で全体を囲み、例外時は rollback
+  - [ ] `php -l app/Services/CsvImportService.php` で構文確認
+- **完了条件**: 構文エラーなし、メソッドが正しく定義されている
+
+---
+
+### タスク T7-3: CsvImportController に importStudentClasses() 追加
+- **優先度**: 最高
+- **依存**: T7-2
+- **対象ファイル**: `app/Http/Controllers/Admin/CsvImportController.php`
+- **内容**:
+  - [ ] `importStudentClasses(Request $request): JsonResponse` メソッドを追加
+  - [ ] `$request->validate(['file' => 'required|file|mimes:csv,txt|max:2048'])`
+  - [ ] `validateCSVFile()` → `parseCSV()` → `importStudentClasses()` の既存パターンに揃える
+  - [ ] レスポンス: `message`（成功/スキップ件数入り）+ `result`
+  - [ ] `php -l app/Http/Controllers/Admin/CsvImportController.php` で構文確認
+- **完了条件**: 構文エラーなし、メソッドが正しく定義されている
+
+---
+
+### タスク T7-4: routes/api.php にルート追加
+- **優先度**: 高
+- **依存**: T7-3
+- **対象ファイル**: `routes/api.php`
+- **内容**:
+  - [ ] admin 認証グループ（`admin.auth` + `two_factor` ミドルウェア）の CSVインポートセクションに追加
+  - [ ] `Route::post('/import/student-classes', [CsvImportController::class, 'importStudentClasses']);`
+  - [ ] `php -l routes/api.php` で構文確認
+- **完了条件**: 構文エラーなし、ルートが正しい場所に追加されている
+
+---
+
+### タスク T7-5: CsvImport.vue に「生徒クラス一括更新」セクション追加
+- **優先度**: 高
+- **依存**: T7-4
+- **対象ファイル**: `resources/js/pages/admin/CsvImport.vue`
+- **内容**:
+  - [ ] `files` / `uploading` / `results` の reactive オブジェクトに `'student-classes'` キー追加
+  - [ ] 既存の第2行グリッドに「生徒クラス一括更新」カード追加（lg:grid-cols-3 に変更、または第3行として独立）
+  - [ ] カード内容: フォーマット説明（seito_id, class_id）・注意書き・ファイル選択・インポートボタン・結果表示
+  - [ ] 結果表示は成功件数とスキップ件数の両方を表示
+  - [ ] CSV形式サンプルセクションに「生徒クラス更新CSV」サンプルを追加
+- **完了条件**: UIに新カードが表示され、ファイル選択・インポートボタンが機能する
+
+---
+
+### タスク T7-6: 動作確認
+- **優先度**: 高
+- **依存**: T7-5
+- **内容**:
+  - [ ] `php artisan route:list | grep student-classes` でルート登録確認
+  - [ ] tinker で `CsvImportService::importStudentClasses()` の戻り値確認
+  - [ ] 正常系: 有効な seito_id + class_id CSV → 全件更新成功
+  - [ ] 異常系1: 存在しない seito_id → skipped に計上
+  - [ ] 異常系2: 存在しない class_id → skipped に計上
+  - [ ] 異常系3: 必須項目欠落 → errors に計上
+- **完了条件**: 全ケースで正しい動作を確認
 
 ---
 
@@ -796,5 +894,63 @@
   - [ ] `getTypeName()` に `classes: 'クラスデータ'` を追加
   - [ ] `$refs.classesFileInput` を追加
 - **完了条件**: UI上からクラスCSVのインポートとテンプレートDLができる
+
+---
+
+## 🟡 Phase 8: 生徒クラス一括更新に seito_number 追加（2026/04/04 修正）
+
+### タスク一覧
+
+| ID | タスク名 | 状態 | 依存 |
+|----|---------|------|------|
+| T8-1 | CsvImportService::importStudentClasses() に seito_number 追加 | [✓] | なし |
+| T8-2 | Index.vue フォーマット説明に seito_number 追加 | [✓] | T8-1 |
+| T8-3 | README.md の生徒クラス更新CSVサンプルに seito_number 追加 | [✓] | T8-1 |
+| T8-4 | 動作確認（php -l + tinker テスト） | [✓] | T8-1〜3 |
+
+---
+
+### タスク T8-1: CsvImportService::importStudentClasses() に seito_number 追加
+- **優先度**: 最高
+- **対象ファイル**: `app/Services/CsvImportService.php`
+- **内容**:
+  - [ ] バリデーションに `'seito_number' => 'required|integer|min:1'` を追加
+  - [ ] `update()` に `'seito_number' => (int) $row['seito_number']` を追加
+  - [ ] `php -l app/Services/CsvImportService.php` で構文確認
+- **完了条件**: 構文エラーなし、seito_number が class_id と同時に更新される
+
+---
+
+### タスク T8-2: Index.vue フォーマット説明に seito_number 追加
+- **優先度**: 高
+- **依存**: T8-1
+- **対象ファイル**: `resources/js/pages/admin/import/Index.vue`
+- **内容**:
+  - [ ] 「生徒クラス一括更新」カードの `<ul>` に `<li>seito_number （新しい出席番号）</li>` を追加
+- **完了条件**: UIのフォーマット説明に seito_number が表示されている
+
+---
+
+### タスク T8-3: README.md の生徒クラス更新CSVサンプルに seito_number 追加
+- **優先度**: 高
+- **依存**: T8-1
+- **対象ファイル**: `README.md`
+- **内容**:
+  - [ ] 生徒クラス更新CSVのサンプルヘッダーに `seito_number` カラムを追加
+  - [ ] サンプルデータ行にも `seito_number` の値を追加
+  - [ ] 年度切り替え手順 STEP 2 の説明文に `seito_number` の言及を追記
+- **完了条件**: README の CSVサンプルが 3カラム（seito_id, class_id, seito_number）になっている
+
+---
+
+### タスク T8-4: 動作確認
+- **優先度**: 高
+- **依存**: T8-1〜3
+- **内容**:
+  - [ ] `php -l app/Services/CsvImportService.php` で構文確認
+  - [ ] tinker で正常系: `['seito_id' => '1001', 'class_id' => '1TOKUSHIN', 'seito_number' => '5']` → success
+  - [ ] tinker で異常系1: 存在しない seito_id → skipped に計上
+  - [ ] tinker で異常系2: `'seito_number' => 'abc'`（文字列） → errors に計上
+- **完了条件**: 全ケースで正しい動作を確認
 
 

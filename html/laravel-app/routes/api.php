@@ -83,6 +83,7 @@ Route::prefix('admin')->middleware('web')->group(function () {
         Route::post('/import/students', [CsvImportController::class, 'importStudents']);
         Route::post('/import/parents', [CsvImportController::class, 'importParents']);
         Route::post('/import/admins', [CsvImportController::class, 'importAdmins']);
+        Route::post('/import/student-classes', [CsvImportController::class, 'importStudentClasses']);
         Route::get('/import/template/{type}', [CsvImportController::class, 'downloadTemplate']);
         
         // 旧インポート（後方互換性）

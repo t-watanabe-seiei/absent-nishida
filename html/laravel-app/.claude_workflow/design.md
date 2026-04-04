@@ -777,3 +777,226 @@ Dashboard.vue にメール変更セクションを追加（折りたたみ可能
 3. バックアップ戦略
 4. ログ管理方針
 5. 複数子供を持つ保護者のUI設計
+
+---
+
+## 14. 年度切り替え機能設計（2026/04/04追加）
+
+### 14.1 設計方針
+
+`class_id` は `classes` テーブルで UNIQUE 制約があり、年度をまたいで同じ文字列 (`1TOKUSHIN` 等) を使う。
+よって **上書き更新方式** を採用する。
+
+| 操作 | 手段 | 備考 |
+|------|------|------|
+| クラスデータ更新（担任情報） | 既存のクラスCSVインポート | `year_id=2026`, `teacher_name`, `teacher_email` を上書き |
+| 生徒クラス一括更新 | **新規実装** | `seito_id, class_id` の CSV で `students.class_id` を更新 |
+| 新入生追加 | 既存の生徒CSVインポート | 変更不要 |
+| 保護者データ | 変更なし | 年度をまたいで継続利用 |
+
+### 14.2 新規実装: 生徒クラス一括更新
+
+#### 14.2.1 CSVフォーマット
+```csv
+seito_id,class_id
+1001,2TOKUSHIN
+1002,2SHINGAKU
+1003,2CHORI
+```
+
+#### 14.2.2 バックエンド設計
+
+**`CsvImportService::importStudentClasses(array $data): array`**
+
+```
+処理フロー:
+  foreach $data as $row
+    1. バリデーション: seito_id=required|string, class_id=required|string
+       → 失敗 → $errors[] に追加してスキップ
+    2. students テーブルに seito_id が存在するか確認
+       → 存在しない → $skipped[] に理由付きで追加してスキップ
+    3. classes テーブルに class_id が存在するか確認
+       → 存在しない → $skipped[] に理由付きで追加してスキップ
+    4. Student::where('seito_id', $row['seito_id'])->update(['class_id' => $row['class_id']])
+       → $success++
+
+戻り値:
+  [
+    'success' => int,   // 更新成功件数
+    'skipped' => int,   // スキップ件数（seito_id/class_id不在）
+    'errors'  => [],    // バリデーションエラー行の詳細
+    'total'   => int,   // CSV総行数
+  ]
+
+トランザクション:
+  DB::beginTransaction() で全体を囲む
+  想定外の例外はロールバックして上位へ rethrow
+  バリデーション/不在によるスキップは正常フロー（ロールバックしない）
+```
+
+**`CsvImportController::importStudentClasses(Request $request): JsonResponse`**
+
+```
+1. $request->validate(['file' => 'required|file|mimes:csv,txt|max:2048'])
+2. $this->csvImportService->validateCSVFile($file)（既存メソッド流用）
+3. $data = $this->csvImportService->parseCSV($file->getRealPath())（既存メソッド流用）
+4. $result = $this->csvImportService->importStudentClasses($data)
+5. レスポンス:
+   {
+     "message": "{success}件の生徒クラスを更新しました（スキップ: {skipped}件）",
+     "result": { success, skipped, errors, total }
+   }
+```
+
+**ルート追加** (`routes/api.php` の admin 認証グループ内)
+```php
+Route::post('/import/student-classes', [CsvImportController::class, 'importStudentClasses']);
+```
+
+#### 14.2.3 フロントエンド設計
+
+**`CsvImport.vue` への追加**
+
+`files` / `uploading` / `results` の reactive オブジェクトに `'student-classes'` キーを追加。
+
+既存の `importFile(type)` 関数は `adminStore.importCsv(type, file)` を呼ぶだけで、
+内部は `/api/admin/import/${type}` に POST する。`type = 'student-classes'` を渡すだけで動作する。
+**`admin.js` の変更は不要。**
+
+UIカード（第3行に単独配置、もしくは既存の第2行グリッドに追加）:
+
+```
+┌──────────────────────────────────────┐
+│ 生徒クラス一括更新                    │
+│ ───────────────────────────────────  │
+│ CSVファイル形式:                      │
+│  • seito_id (生徒ID)                  │
+│  • class_id (新しいクラスID)           │
+│                                      │
+│ ⚠️ 年度切り替え時に使用してください。   │
+│    先にクラスCSVをインポートすること。  │
+│                                      │
+│ [📁 ファイルを選択]                   │
+│ [⬆️ インポート実行]                  │
+│                                      │
+│ 結果: 更新 N件 / スキップ M件         │
+└──────────────────────────────────────┘
+```
+
+**結果表示**: 成功時に `success` 件数と `skipped` 件数の両方を表示する（他のインポートと差別化）。
+
+### 14.3 既存インポート機能で対応するクラスCSV更新
+
+既存の `ImportController::importClasses()` → `CsvImportService::importClasses()` が
+`ClassModel::updateOrCreate(['class_id' => $row['class_id']], [...])` を使っているため、
+**year_id=2026 の CSVをそのままインポートすれば担任情報が上書きされる**。
+追加実装不要。
+
+### 14.4 操作手順ドキュメント（README に記載する内容）
+
+```
+■ 年度切り替え手順（毎年4月）
+
+STEP 1: クラスデータ更新
+  - CSV形式: class_id, class_name, teacher_name, teacher_email, year_id
+  - year_id に新年度の値（例: 2026）を記入
+  - 管理画面 → CSVインポート → クラスインポート
+
+STEP 2: 生徒クラス一括更新
+  - CSV形式: seito_id, class_id
+  - 各生徒の新クラスIDを記入（例: 進級後のクラスID）
+  - 管理画面 → CSVインポート → 生徒クラス一括更新
+
+STEP 3: 新入生インポート
+  - 通常の生徒CSVインポートで1年生を追加
+```
+
+### 14.5 エラーハンドリング方針
+
+| ケース | 処理 |
+|--------|------|
+| seito_id が存在しない | スキップ（skipped カウント）、処理継続 |
+| class_id が存在しない | スキップ（skipped カウント）、処理継続 |
+| バリデーションエラー（必須項目欠落等） | errors に追加、処理継続 |
+| DB例外等の予期せぬエラー | ロールバック後に 500 で返す |
+
+---
+
+## 15. 機能修正設計 - 生徒クラス一括更新に seito_number 追加（2026/04/04）
+
+### 15.1 変更対象ファイル一覧
+
+| ファイル | 変更種別 | 変更内容 |
+|---------|---------|---------|
+| `app/Services/CsvImportService.php` | 修正 | `importStudentClasses()` のバリデーションと update 対象を変更 |
+| `resources/js/pages/admin/import/Index.vue` | 修正 | 「生徒クラス一括更新」カードのフォーマット説明に `seito_number` を追記 |
+| `README.md` | 修正 | 生徒クラス更新CSV のサンプルに `seito_number` カラムを追記 |
+
+### 15.2 CsvImportService::importStudentClasses() の変更設計
+
+**バリデーション変更**
+```php
+// 変更前
+'seito_id'    => 'required|string',
+'class_id'    => 'required|string',
+
+// 変更後
+'seito_id'     => 'required|string',
+'class_id'     => 'required|string',
+'seito_number' => 'required|integer|min:1',
+```
+
+**update 対象の変更**
+```php
+// 変更前
+Student::where('seito_id', $row['seito_id'])
+    ->update(['class_id' => $row['class_id']]);
+
+// 変更後
+Student::where('seito_id', $row['seito_id'])
+    ->update([
+        'class_id'     => $row['class_id'],
+        'seito_number' => (int) $row['seito_number'],
+    ]);
+```
+
+> `seito_number` は Validator の `integer` ルールを通過した後、`(int)` キャストして update する。
+> CSV の値は文字列として渡されるため明示的なキャストが必要。
+
+**コメント更新**
+```php
+// CSVフォーマット: seito_id, class_id, seito_number
+```
+
+### 15.3 フロントエンド変更設計（Index.vue）
+
+「生徒クラス一括更新」カードの `<ul>` に1行追加するのみ。
+
+```html
+<!-- 変更前 -->
+<li>seito_id （生徒ID）</li>
+<li>class_id （新しいクラスID）</li>
+
+<!-- 変更後 -->
+<li>seito_id （生徒ID）</li>
+<li>class_id （新しいクラスID）</li>
+<li>seito_number （新しい出席番号）</li>
+```
+
+### 15.4 README.md 変更設計
+
+生徒クラス更新CSVのサンプルに `seito_number` カラムを追加する。
+
+```csv
+// 変更前
+seito_id,class_id
+1001,2TOKUSHIN
+1002,2SHINGAKU
+
+// 変更後
+seito_id,class_id,seito_number
+1001,2TOKUSHIN,3
+1002,2SHINGAKU,1
+```
+
+年度切り替え手順（STEP 2）の説明文にも `seito_number` への言及を追記する。

@@ -112,6 +112,38 @@ class CsvImportController extends Controller
     }
 
     /**
+     * 生徒クラス一括更新（年度切り替え用）
+     */
+    public function importStudentClasses(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt|max:2048',
+        ]);
+
+        $file = $request->file('file');
+
+        if (!$this->csvImportService->validateCSVFile($file)) {
+            return response()->json([
+                'message' => 'CSVファイルが無効です',
+            ], 422);
+        }
+
+        try {
+            $data = $this->csvImportService->parseCSV($file->getRealPath());
+            $result = $this->csvImportService->importStudentClasses($data);
+
+            return response()->json([
+                'message' => "{$result['success']}件の生徒クラスを更新しました（スキップ: {$result['skipped']}件）",
+                'result' => $result,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'インポートに失敗しました: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * CSVテンプレートダウンロード
      */
     public function downloadTemplate(Request $request, string $type)

@@ -281,7 +281,71 @@
         </div>
       </div>
     </div>
-    
+
+    <!-- 年度切り替え: 生徒クラス一括更新 -->
+    <div class="mt-6">
+      <div class="bg-white rounded-lg shadow p-6 border-l-4 border-yellow-400">
+        <h2 class="text-xl font-semibold mb-1 text-yellow-700">📅 生徒クラス一括更新</h2>
+        <p class="text-xs text-yellow-600 mb-4">年度切り替え時に使用します。先にクラスCSVをインポートしてください。</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <p class="text-sm text-gray-600 mb-2">CSVファイル形式:</p>
+            <ul class="text-xs text-gray-500 list-disc list-inside mb-3">
+              <li>seito_id （生徒ID）</li>
+              <li>class_id （新しいクラスID）</li>
+              <li>seito_number （新しい出席番号）</li>
+            </ul>
+            <p class="text-xs text-gray-500 mb-3">
+              ※ 存在しない seito_id / class_id はスキップされます（エラーになりません）
+            </p>
+
+            <div class="mb-4">
+              <input
+                ref="studentClassesFileInput"
+                type="file"
+                accept=".csv"
+                @change="handleFileSelect($event, 'student-classes')"
+                class="hidden"
+              />
+              <Button
+                variant="primary"
+                @click="$refs.studentClassesFileInput.click()"
+                class="w-full"
+                :disabled="uploading['student-classes']"
+              >
+                📁 ファイルを選択
+              </Button>
+              <p v-if="selectedFiles['student-classes']" class="text-sm text-gray-600 mt-2">
+                {{ selectedFiles['student-classes'].name }}
+              </p>
+            </div>
+
+            <Button
+              variant="success"
+              @click="uploadFile('student-classes')"
+              :disabled="!selectedFiles['student-classes'] || uploading['student-classes']"
+              class="w-full"
+            >
+              {{ uploading['student-classes'] ? 'アップロード中...' : '⬆️ インポート実行' }}
+            </Button>
+          </div>
+
+          <div v-if="results['student-classes']" class="flex items-start">
+            <div class="w-full p-4 bg-green-50 border border-green-200 rounded text-sm">
+              <p class="text-green-700 font-semibold mb-2">✓ 更新完了</p>
+              <p class="text-gray-700">更新: <span class="font-bold">{{ results['student-classes'].success }}</span> 件</p>
+              <p class="text-gray-700">スキップ: <span class="font-bold">{{ results['student-classes'].skipped }}</span> 件</p>
+              <p class="text-gray-700">合計: {{ results['student-classes'].total }} 件</p>
+              <p v-if="results['student-classes'].errors && results['student-classes'].errors.length > 0" class="text-red-600 mt-1">
+                バリデーションエラー: {{ results['student-classes'].errors.length }} 件
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- エラー詳細表示 -->
     <div v-if="hasErrors" class="mt-8 bg-red-50 border border-red-200 rounded-lg p-6">
       <h3 class="text-lg font-semibold text-red-800 mb-4">⚠️ エラー詳細</h3>
@@ -327,6 +391,7 @@ const selectedFiles = reactive({
   parents: null,
   admins: null,
   classes: null,
+  'student-classes': null,
 });
 
 const uploading = reactive({
@@ -334,6 +399,7 @@ const uploading = reactive({
   parents: false,
   admins: false,
   classes: false,
+  'student-classes': false,
 });
 
 const results = reactive({
@@ -341,6 +407,7 @@ const results = reactive({
   parents: null,
   admins: null,
   classes: null,
+  'student-classes': null,
 });
 
 const hasErrors = computed(() => {
@@ -414,6 +481,7 @@ const getTypeName = (type) => {
     parents: '保護者データ',
     admins: '管理者データ',
     classes: 'クラスデータ',
+    'student-classes': '生徒クラス一括更新',
   };
   return names[type] || type;
 };
