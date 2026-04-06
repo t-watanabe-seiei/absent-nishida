@@ -146,15 +146,63 @@
         </div>
       </div>
     </div>
+
+    <!-- お知らせ一覧 -->
+    <div v-if="announcements.length > 0" class="mt-6">
+      <h2 class="text-xl font-semibold mb-3">📢 お知らせ</h2>
+      <div class="space-y-4">
+        <div
+          v-for="ann in announcements"
+          :key="ann.id"
+          class="bg-white rounded-lg shadow p-5"
+        >
+          <div class="flex items-start justify-between mb-2">
+            <h3 class="font-bold text-lg">{{ ann.title }}</h3>
+            <span class="text-xs text-gray-400 whitespace-nowrap ml-3">期限: {{ formatAnnDate(ann.expires_at) }}</span>
+          </div>
+          <p class="text-sm text-gray-700 whitespace-pre-wrap mb-3">{{ ann.body }}</p>
+          <div v-if="ann.attachments && ann.attachments.length > 0" class="flex flex-wrap gap-2">
+            <a
+              v-for="att in ann.attachments"
+              :key="att.id"
+              :href="`/api/parent/announcements/${ann.id}/attachments/${att.id}`"
+              target="_blank"
+              class="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 text-blue-700 text-sm rounded hover:bg-blue-100"
+            >
+              📎 {{ att.original_name }}
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../../stores/auth';
 
 const authStore = useAuthStore();
+
+// お知らせ
+const announcements = ref([]);
+
+function formatAnnDate(dateStr) {
+  if (!dateStr) return '-';
+  return new Date(dateStr).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
+async function fetchAnnouncements() {
+  try {
+    const res = await axios.get('/api/parent/announcements');
+    announcements.value = res.data;
+  } catch {}
+}
+
+onMounted(() => {
+  fetchAnnouncements();
+});
 
 // メール変更カード表示フラグ
 const showEmailChangeCard = ref(false);

@@ -1,7 +1,7 @@
 # 欠席連絡システム
 
-保護者がオンラインで欠席・遅刻・早退連絡を行い、担任へ自動メール通知するWebアプリケーション。  
-管理者（スーパー管理者・担任）は欠席状況をリアルタイムで参照・管理できる。
+保護者が生徒の欠席・遅刻・早退を登録すると、担任へ自動メール通知するWebアプリケーション。  
+管理者はリアルタイムで欠席状況を参照・管理でき、保護者へのお知らせ送信（PDF添付対応）機能も備える。
 
 ## 技術スタック
 
@@ -21,16 +21,16 @@
 
 ```
 SPA (Vue.js 3)
-  └─ Pinia ストア (auth / admin / parent)
+  └─ Pinia ストア (auth)
        └─ Laravel API (セッション認証)
             ├─ 管理者ルート  /api/admin/...
             ├─ 保護者ルート  /api/parent/...
             └─ 共通ルート   /api/register/...
 ```
 
-- フロントエンドは1枚のHTMLファイル(`app.blade.php`)＋Vue Routerで画面遷移するSPA構成
-- APIはすべて `/api/` 以下で提供（Laravelセッション認証）
-- WebルートはSPAキャッチオール（`/{any}` → `app.blade.php`）
+- フロントエンドは1枚のHTMLファイル（`app.blade.php`）＋ Vue Router で画面遷移する SPA 構成
+- API はすべて `/api/` 以下で提供（Laravel セッション認証）
+- Web ルートは SPA キャッチオール（`/{any}` → `app.blade.php`）
 
 ---
 
@@ -74,15 +74,17 @@ npm run dev
 |-----|------|
 | `/admin/login` | 管理者ログイン |
 | `/admin/dashboard` | ダッシュボード（統計情報） |
-| `/admin/classes` | クラス一覧・管理 |
+| `/admin/classes` | クラス一覧・管理（スーパー管理者のみ） |
 | `/admin/students` | 生徒一覧・管理 |
-| `/admin/parents` | 保護者一覧・管理 |
+| `/admin/parents` | 保護者一覧・管理（スーパー管理者のみ） |
 | `/admin/absences` | 欠席連絡一覧 |
 | `/admin/absences/today` | 本日の欠席・遅刻一覧 |
-| `/admin/import` | CSVインポート |
+| `/admin/import` | CSVインポート（スーパー管理者のみ） |
+| `/admin/announcements` | お知らせ管理（作成・一覧・既読確認） |
+| `/admin/settings` | システム設定（スーパー管理者のみ） |
 
 **管理者種別：**
-- **スーパー管理者**（`is_super_admin=true`）: 全クラスのデータを管理
+- **スーパー管理者**（`is_super_admin=true`）: 全クラスのデータを管理、お知らせ機能のON/OFF切替可
 - **担任**（`is_super_admin=false`）: 自分の担当クラスのデータのみ参照・管理
 
 ### 保護者
@@ -92,8 +94,9 @@ npm run dev
 | `/parent/login` | 保護者ログイン |
 | `/parent/register-email` | 初回ログイン時のメール登録 |
 | `/parent/verify-2fa` | 2段階認証コード入力 |
-| `/parent/dashboard` | ダッシュボード（欠席連絡一覧） |
-| `/parent/absences/new` | 欠席・遅刻連絡登録 |
+| `/parent/dashboard` | ダッシュボード（欠席連絡・お知らせ表示） |
+| `/parent/absences` | 欠席連絡一覧 |
+| `/parent/absences/create` | 欠席・遅刻連絡登録 |
 
 ---
 
@@ -101,7 +104,7 @@ npm run dev
 
 ### 管理者
 ```
-メールアドレス + パスワード → ログイン成功 → ダッシュボード
+email + パスワード → ログイン成功 → ダッシュボード
 ```
 
 ### 保護者（初回ログイン）
@@ -118,6 +121,47 @@ initial_email + initial_password
   → 認証コード送信（登録済み parent_email 宛）
     → コード入力 → ダッシュボード
 ```
+
+---
+
+## データベース構造
+
+### 主要テーブル
+
+| テーブル名 | 概要 |
+|-----------|------|
+| `admins` | 管理者（スーパー管理者・担任）情報 |
+| `classes` | クラス情報（class_id, class_name, teacher_name, teacher_email, year_id） |
+| `students` | 生徒情報（seito_id, seito_name, seito_number, class_id） |
+| `parents` | 保護者情報（seito_id, parent_name, parent_email, 認証情報） |
+| `absences` | 欠席連絡（seito_id, division, reason, absence_date, scheduled_time） |
+| `two_factor_codes` | 2段階認証コード（email, code, guard, expires_at） |
+| `announcements` | お知らせ（admin_id, title, body, target_class_ids, target_parent_ids, notify_by_email, expires_at） |
+| `announcement_reads` | お知らせ既読記録（announcement_id, parent_id, read_at） |
+| `announcement_attachments` | 添付ファイルメタデータ（announcement_id, original_name, stored_path） |
+| `system_settings` | システム設定（key, value）|
+
+### admins テーブル
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| id | integer | PK |
+| name | string | 管理者名 |
+| email | string | メールアドレス（ログイン用） |
+| password | string | ハッシュ化パスワード |
+| class_id | string nullable | 担当クラスID（担任のみ） |
+| is_super_admin | boolean | スーパー管理者フラグ（デフォルト false） |
+
+### classes テーブル
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| id | integer | PK |
+| class_id | string | クラスID（例: 1TOKUSHIN） |
+| class_name | string | クラス名（例: 1特進） |
+| teacher_name | string | 担任氏名 |
+| teacher_email | string | 担任メールアドレス（通知送信先） |
+| year_id | integer | 年度 |
 
 ---
 
@@ -144,9 +188,56 @@ initial_email + initial_password
 - 欠席連絡の月次一覧・統計グラフ・クラス別集計
 - フィルター条件に合う全件を UTF-8 BOM 付き CSV でダウンロード可能（項目：日付・学年・クラス・出席番号・氏名・区分・理由・予定時刻）
 
+### お知らせ管理
+- お知らせの作成・編集・削除（タイトル・本文・有効期限・対象クラス/保護者を指定）
+- PDFファイルを最大5件添付可能（1ファイル最大10MB）
+- 作成時にメール通知の有無を選択可能（対象保護者へ一括送信）
+- スーパー管理者: 全クラスを自由に選択可能
+- 担任: 自クラスのみ対象として送信可能
+- 担任は自クラス宛の全お知らせを閲覧可能（既読/未読人数付き）
+- 詳細画面で保護者ごとの既読/未読状況を確認可能
+
+### システム設定
+- スーパー管理者のみアクセス可能
+- お知らせ機能の有効/無効を切り替え（デフォルト: 無効）
+
 ### ダッシュボード
 - クラス数・生徒数・保護者数・本日の欠席/遅刻数を表示
 - 担任は自分のクラスのみの集計値を表示
+
+### CSVインポート
+
+#### 管理者CSVインポート仕様
+
+| 列 | 説明 |
+|----|------|
+| name | 管理者名（必須） |
+| email | メールアドレス（必須・重複時は上書き更新） |
+| password | パスワード（必須） |
+| class_id | 担当クラスID（担任の場合・空欄可） |
+| is_super_admin | true/1/yes → スーパー管理者、それ以外 → 担任（デフォルト false） |
+
+- 存在しない `class_id` は `null` で登録し warnings に記録
+- テンプレートCSVは `/api/admin/import/template/admins` でダウンロード
+
+#### 生徒CSVインポート仕様
+
+| 列 | 説明 |
+|----|------|
+| seito_id | 生徒ID（必須） |
+| seito_name | 氏名（必須） |
+| seito_number | 出席番号（必須） |
+| class_id | クラスID（必須） |
+
+#### 保護者CSVインポート仕様
+
+| 列 | 説明 |
+|----|------|
+| seito_id | 生徒ID（必須） |
+| parent_name | 保護者名（必須） |
+| parent_email | メールアドレス（必須） |
+| parent_relationship | 続柄 |
+| parent_tel | 電話番号 |
 
 ---
 
@@ -162,6 +253,12 @@ initial_email + initial_password
 ### 通知
 - 欠席連絡が登録されると、担任（`classes.teacher_email`）へ自動メール通知
 
+### お知らせ受信
+- ダッシュボードログイン時に有効なお知らせが自動表示
+- 表示と同時に自動既読登録（管理者側で既読状況を確認可能）
+- PDFファイルはダウンロードリンクから取得可能
+- お知らせ機能が無効の場合は表示されない
+
 ### 認証メール再設定
 - ダッシュボードから2段階認証用メールアドレスを変更可能
   1. 新しいメールアドレスを入力 → 確認コード送信
@@ -169,7 +266,62 @@ initial_email + initial_password
 
 ---
 
-## クラス一覧
+## API エンドポイント一覧
+
+### 管理者 `/api/admin/`
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| POST | `/admin/login` | ログイン |
+| POST | `/admin/verify-2fa` | 2FA検証 |
+| POST | `/admin/logout` | ログアウト |
+| GET | `/admin/me` | 認証ユーザー情報取得 |
+| GET | `/admin/dashboard/stats` | ダッシュボード統計 |
+| GET/POST | `/admin/classes` | クラス一覧・登録 |
+| GET/PUT/DELETE | `/admin/classes/{id}` | クラス詳細・更新・削除 |
+| GET/POST | `/admin/students` | 生徒一覧・登録 |
+| GET/PUT/DELETE | `/admin/students/{id}` | 生徒詳細・更新・削除 |
+| GET/POST | `/admin/parents` | 保護者一覧・登録 |
+| GET/PUT/DELETE | `/admin/parents/{id}` | 保護者詳細・更新・削除 |
+| GET | `/admin/absences/stats` | 欠席統計 |
+| GET | `/admin/absences/monthly` | 月次欠席一覧 |
+| GET | `/admin/absences/today` | 本日の欠席一覧 |
+| GET | `/admin/absences/export` | 欠席CSVダウンロード |
+| GET | `/admin/absences` | 欠席一覧 |
+| GET | `/admin/absences/{id}` | 欠席詳細 |
+| POST | `/admin/import/students` | 生徒CSVインポート |
+| POST | `/admin/import/parents` | 保護者CSVインポート |
+| POST | `/admin/import/admins` | 管理者CSVインポート |
+| POST | `/admin/import/student-classes` | 生徒クラス紐付けインポート |
+| GET | `/admin/import/template/{type}` | テンプレートCSVダウンロード |
+| GET/POST | `/admin/announcements` | お知らせ一覧・作成 |
+| GET/PUT/DELETE | `/admin/announcements/{id}` | お知らせ詳細・更新・削除 |
+| GET | `/admin/announcements/{id}/reads` | 既読状況取得 |
+| POST | `/admin/announcements/{id}/attachments` | 添付ファイル追加 |
+| DELETE | `/admin/announcements/{id}/attachments/{attachId}` | 添付ファイル削除 |
+| GET | `/admin/settings` | システム設定取得 |
+| PUT | `/admin/settings` | システム設定更新 |
+
+### 保護者 `/api/parent/`
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| POST | `/parent/login` | ログイン |
+| POST | `/parent/register-email` | 初回メール登録 |
+| POST | `/parent/verify-2fa` | 2FA検証 |
+| POST | `/parent/resend-2fa` | 2FA再送信 |
+| POST | `/parent/logout` | ログアウト |
+| GET | `/parent/me` | 認証ユーザー情報取得 |
+| POST | `/parent/request-email-change` | メール変更リクエスト |
+| POST | `/parent/confirm-email-change` | メール変更確定 |
+| GET/POST | `/parent/absences` | 欠席連絡一覧・登録 |
+| GET/PUT/DELETE | `/parent/absences/{id}` | 欠席連絡詳細・更新・削除 |
+| GET | `/parent/announcements` | お知らせ一覧取得（自動既読登録） |
+| GET | `/parent/announcements/{id}/attachments/{attachId}` | 添付ファイルダウンロード |
+
+---
+
+## クラス一覧（サンプル）
 
 | class_id | class_name | 備考 |
 |----------|-----------|------|
@@ -198,246 +350,48 @@ initial_email + initial_password
 | 3SOGO2 | 3総合２ | |
 | 3SOGO3 | 3総合３ | |
 
-> `class_id` はシステム内部の識別子で変更不可。`class_name` は表示名。
+---
+
+## セキュリティ
+
+- パスワードはBcryptでハッシュ化
+- 保護者ログインは2段階認証（メール送信の6桁コード・10分有効）
+- セッションはLaravelの標準セキュリティ機能で保護
+- 管理者ミドルウェア（`AdminAuth`）で管理者専用ルートを保護
+- 保護者ミドルウェア（`ParentAuth`）で保護者専用ルートを保護
+- CSVインジェクション対策（出力フィールドの先頭文字をサニタイズ）
 
 ---
 
-## CSVインポート
-
-管理画面（`/admin/import`）から各種データを一括登録できる。
-
-### 生徒データ（`/api/admin/import/students`）
-```csv
-seito_id,seito_name,seito_number,class_id,seito_initial_email
-1001,山田太郎,1,1TOKUSHIN,1001@seiei.ac.jp
-```
-- `seito_id` 重複時は上書き更新
-
-### 保護者データ（`/api/admin/import/parents`）
-```csv
-seito_id,parent_name,parent_initial_email,parent_initial_password
-1001,山田一郎,yamada@example.com,password123
-```
-- `parent_initial_password` はインポート時に自動的に bcrypt ハッシュ化される
-
-### 管理者データ（`/api/admin/import/admins`）
-```csv
-name,email,password,class_id,is_super_admin
-スーパー管理者,admin@seiei.ac.jp,password,,true
-田中先生,tanaka@seiei.ac.jp,password,1TOKUSHIN,false
-```
-- `email` 重複時は上書き更新
-- `class_id` は担任の担当クラス ID。存在しない値を指定した場合は `null` で登録され警告が返る
-- `is_super_admin` は `true` / `1` / `yes` のいずれかで真。それ以外は `false`
-
-### クラスデータ（`/api/admin/import/classes`）
-```csv
-class_id,class_name,teacher_name,teacher_email,year_id
-1TOKUSHIN,1特進,田中先生,tanaka@seiei.ac.jp,2026
-```
-- `class_id` 重複時は担任・年度情報を上書き更新
-
-### 担任データ（`/api/admin/import/teachers`）
-```csv
-class_id,teacher_name,teacher_email
-1TOKUSHIN,田中先生,tanaka@seiei.ac.jp
-```
-
-### 生徒クラス一括更新（`/api/admin/import/student-classes`）
-```csv
-seito_id,class_id,seito_number
-1001,2TOKUSHIN,3
-1002,2SHINGAKU,1
-```
-- 年度切り替え時に生徒のクラス配属と出席番号を一括更新する際に使用
-- `seito_id` または `class_id` が存在しない行はスキップ（エラーにならない）
-
----
-
-## 年度切り替え手順
-
-毎年4月の新学年度開始時に以下の順序で操作する。
-
-### STEP 1: クラスデータ更新
-担任変更・クラス名変更がある場合は新年度のクラスCSVをインポートする。
-
-```csv
-class_id,class_name,teacher_name,teacher_email,year_id
-1TOKUSHIN,1特進,新担任名,newtanaka@seiei.ac.jp,2026
-```
-
-管理画面 → CSVインポート → **クラスインポート**
-
-### STEP 2: 生徒クラス一括更新
-進級した生徒の `class_id` と `seito_number`（出席番号）を更新する（例: 1年→2年へ進級）。
-
-```csv
-seito_id,class_id,seito_number
-1001,2TOKUSHIN,3
-1002,2SHINGAKU,1
-```
-
-管理画面 → CSVインポート → **生徒クラス一括更新**
-
-> ⚠️ STEP 1（クラスデータ更新）を先に完了させてから実行すること。
-
-### STEP 3: 新入生インポート
-通常の生徒CSVインポートで1年生を追加する。
-
----
-
-## ディレクトリ構成
+## ディレクトリ構成（主要部分）
 
 ```
 laravel-app/
-├── app/
-│   ├── Http/
-│   │   ├── Controllers/
-│   │   │   ├── Admin/          # 管理者機能コントローラー
-│   │   │   │   ├── ClassController.php
-│   │   │   │   ├── StudentController.php
-│   │   │   │   ├── ParentController.php
-│   │   │   │   ├── AbsenceController.php
-│   │   │   │   ├── DashboardController.php
-│   │   │   │   ├── CsvImportController.php
-│   │   │   │   └── ImportController.php
-│   │   │   ├── Auth/           # 認証コントローラー
-│   │   │   │   ├── AdminLoginController.php
-│   │   │   │   └── ParentLoginController.php
-│   │   │   └── Parent/         # 保護者機能コントローラー
-│   │   │       └── AbsenceController.php
-│   │   └── Middleware/
-│   │       ├── AdminAuth.php
-│   │       ├── ParentAuth.php
-│   │       └── TwoFactorVerified.php
-│   ├── Models/
-│   │   ├── ClassModel.php      # classes テーブル
-│   │   ├── Student.php         # students テーブル
-│   │   ├── ParentModel.php     # parents テーブル
-│   │   ├── Absence.php         # absences テーブル
-│   │   ├── Admin.php           # admins テーブル
-│   │   └── TwoFactorCode.php   # two_factor_codes テーブル
-│   └── Services/
-│       ├── CsvImportService.php        # CSV処理
-│       ├── TwoFactorService.php        # 2FA処理
-│       └── AbsenceNotificationService.php  # メール通知
-├── database/
-│   ├── migrations/             # マイグレーションファイル
-│   └── database.sqlite         # SQLiteデータベース
-├── resources/js/
-│   ├── pages/
-│   │   ├── admin/              # 管理者画面コンポーネント
-│   │   ├── parent/             # 保護者画面コンポーネント
-│   │   └── auth/               # 認証画面コンポーネント
-│   ├── stores/
-│   │   ├── auth.js             # 認証状態管理（Pinia）
-│   │   ├── admin.js            # 管理者API呼び出し
-│   │   └── parent.js           # 保護者API呼び出し
-│   └── router/index.js         # Vue Router 設定
-└── routes/
-    ├── api.php                 # APIルート定義
-    └── web.php                 # Webルート（SPAエントリーポイント）
+ app/
+   ├── Http/
+   │   ├── Controllers/
+   │   │   ├── Admin/           # 管理者用コントローラ
+   │   │   ├── Auth/            # 認証コントローラ
+   │   │   └── Parent/          # 保護者用コントローラ
+   │   ├── Middleware/          # AdminAuth, ParentAuth, TwoFactorVerified
+   │   └── Requests/            # フォームリクエスト（バリデーション）
+   ├── Models/                  # Eloquentモデル
+   └── Services/                # ビジネスロジック（通知・CSVインポート等）
+ database/
+   ├── migrations/              # DBマイグレーション
+   └── seeders/                 # シードデータ
+ resources/
+   └── js/
+       ├── pages/
+       │   ├── admin/           # 管理者画面Vue
+       │   ├── parent/          # 保護者画面Vue
+       │   └── auth/            # 認証画面Vue
+       ├── stores/              # Piniaストア
+       ├── layouts/             # レイアウトコンポーネント
+       └── router/              # Vue Router設定
+ routes/
+   ├── api.php                  # API ルート定義
+   └── web.php                  # SPAキャッチオール
+ storage/
+    └── app/               # アップロードファイル保存先
 ```
-
----
-
-## データベース設計
-
-| テーブル名 | 説明 |
-|-----------|------|
-| `admins` | 管理者（スーパー管理者・担任）。`is_super_admin` フラグで権限区別 |
-| `classes` | クラス（担任・年度情報を含む）。`class_id` が主キー（例: `1TOKUSHIN`） |
-| `students` | 生徒（`class_id` で `classes` に外部キー） |
-| `parents` | 保護者（`seito_id` で生徒に紐付け・認証情報保持） |
-| `absences` | 欠席・遅刻・早退連絡（`is_deleted` で論理削除） |
-| `two_factor_codes` | 2段階認証コード（10分有効・使用後即削除） |
-
-### 主なリレーション
-
-```
-classes ─< students ─< parents
-                   └─< absences
-admins >── classes
-```
-
-### admins テーブル主要カラム
-
-| カラム | 説明 |
-|--------|------|
-| `email` | ログイン用メールアドレス |
-| `password` | bcrypt ハッシュ |
-| `class_id` | 担当クラス（NULL = スーパー管理者） |
-| `is_super_admin` | true/false |
-
-### students テーブル主要カラム
-
-| カラム | 説明 |
-|--------|------|
-| `seito_id` | 生徒番号（一意） |
-| `seito_name` | 氏名 |
-| `seito_number` | 出席番号 |
-| `class_id` | 所属クラスID |
-| `seito_initial_email` | 初期メール（未使用。将来の生徒ポータル向け） |
-
-### absences テーブル主要カラム
-
-| カラム | 説明 |
-|--------|------|
-| `seito_id` | 対象生徒 |
-| `division` | 欠席 / 遅刻 / 早退 |
-| `absence_date` | 欠席日 |
-| `reason` | 理由 |
-| `scheduled_time` | 登校予定時刻（遅刻の場合のみ） |
-| `is_deleted` | 論理削除フラグ |
-
----
-
-## APIエンドポイント一覧
-
-### 認証
-
-| メソッド | パス | 説明 |
-|---------|------|------|
-| POST | `/api/admin/login` | 管理者ログイン |
-| POST | `/api/admin/logout` | 管理者ログアウト |
-| GET | `/api/admin/me` | ログイン中の管理者情報 |
-| POST | `/api/parent/login` | 保護者ログイン |
-| POST | `/api/parent/verify-2fa` | 2FA コード検証 |
-| POST | `/api/parent/resend-2fa` | 2FA コード再送信 |
-
-### 管理者API（要認証）
-
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | `/api/admin/dashboard/stats` | ダッシュボード統計 |
-| GET/POST | `/api/admin/classes` | クラス一覧・登録 |
-| GET/PUT/DELETE | `/api/admin/classes/{id}` | クラス詳細・更新・削除 |
-| GET/POST | `/api/admin/students` | 生徒一覧・登録 |
-| GET/PUT/DELETE | `/api/admin/students/{id}` | 生徒詳細・更新・削除 |
-| GET/POST | `/api/admin/parents` | 保護者一覧・登録 |
-| GET/PUT/DELETE | `/api/admin/parents/{id}` | 保護者詳細・更新・削除 |
-| GET | `/api/admin/absences` | 欠席連絡一覧 |
-| GET | `/api/admin/absences/stats` | 欠席統計 |
-| GET | `/api/admin/absences/today` | 本日の欠席一覧 |
-| POST | `/api/admin/import/students` | 生徒CSVインポート |
-| POST | `/api/admin/import/parents` | 保護者CSVインポート |
-| POST | `/api/admin/import/admins` | 管理者CSVインポート |
-| POST | `/api/admin/import/student-classes` | 生徒クラス一括更新 |
-
-### 保護者API（要認証）
-
-| メソッド | パス | 説明 |
-|---------|------|------|
-| GET | `/api/parent/me` | ログイン中の保護者情報 |
-| GET/POST | `/api/parent/absences` | 欠席連絡一覧・登録 |
-| GET/PUT/DELETE | `/api/parent/absences/{id}` | 欠席連絡詳細・更新・削除 |
-
----
-
-## 注意事項
-
-- SQLite の外部キー制約は有効化されている（`PRAGMA foreign_keys = ON`）
-- 保護者の `parent_initial_password` は bcrypt でハッシュ化して保存
-- 2段階認証コードは使用後・期限切れ後に自動削除
-- 開発環境ではメール送信を `log` ドライバーで代替（`storage/logs/laravel.log` に出力）
-- クラス名「情報会計」は2026年4月より「情会」に変更（`class_id` は `JOHO` のまま）

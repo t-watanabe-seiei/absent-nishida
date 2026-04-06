@@ -29,6 +29,10 @@ import ParentForm from '../pages/admin/parents/Form.vue';
 import AdminAbsenceList from '../pages/admin/absences/List.vue';
 import TodayAbsenceList from '../pages/admin/absences/TodayList.vue';
 import CsvImport from '../pages/admin/import/Index.vue';
+import AnnouncementList from '../pages/admin/announcements/List.vue';
+import AnnouncementForm from '../pages/admin/announcements/Form.vue';
+import AnnouncementDetail from '../pages/admin/announcements/Detail.vue';
+import AdminSettings from '../pages/admin/Settings.vue';
 
 // 保護者画面
 import ParentDashboard from '../pages/parent/Dashboard.vue';
@@ -193,6 +197,31 @@ const routes = [
         path: 'import',
         name: 'admin.import',
         component: CsvImport
+      },
+      {
+        path: 'announcements',
+        name: 'admin.announcements',
+        component: AnnouncementList
+      },
+      {
+        path: 'announcements/create',
+        name: 'admin.announcements.create',
+        component: AnnouncementForm
+      },
+      {
+        path: 'announcements/:id',
+        name: 'admin.announcements.detail',
+        component: AnnouncementDetail
+      },
+      {
+        path: 'announcements/:id/edit',
+        name: 'admin.announcements.edit',
+        component: AnnouncementForm
+      },
+      {
+        path: 'settings',
+        name: 'admin.settings',
+        component: AdminSettings
       }
     ]
   },

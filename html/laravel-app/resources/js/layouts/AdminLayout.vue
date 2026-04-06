@@ -51,6 +51,21 @@
             >
               CSVインポート
             </router-link>
+            <router-link
+              to="/admin/announcements"
+              class="px-3 py-2 text-sm font-medium rounded hover:bg-gray-100 whitespace-nowrap"
+              :class="isActive('/admin/announcements') ? 'bg-blue-100 text-blue-700' : 'text-gray-700'"
+            >
+              お知らせ
+            </router-link>
+            <router-link
+              v-if="isSuperAdmin"
+              to="/admin/settings"
+              class="px-3 py-2 text-sm font-medium rounded hover:bg-gray-100 whitespace-nowrap"
+              :class="isActive('/admin/settings') ? 'bg-blue-100 text-blue-700' : 'text-gray-700'"
+            >
+              設定
+            </router-link>
           </div>
           
           <!-- ナビゲーションボタン -->

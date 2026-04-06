@@ -12,7 +12,10 @@ use App\Http\Controllers\Admin\ImportController;
 use App\Http\Controllers\Admin\CsvImportController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\AbsenceController as AdminAbsenceController;
+use App\Http\Controllers\Admin\AnnouncementController as AdminAnnouncementController;
+use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Parent\AbsenceController;
+use App\Http\Controllers\Parent\AnnouncementController as ParentAnnouncementController;
 use App\Http\Controllers\DemoController;
 
 /*
@@ -91,6 +94,20 @@ Route::prefix('admin')->middleware('web')->group(function () {
         Route::post('/import/classes', [ImportController::class, 'importClasses']);
         Route::post('/import/teachers', [ImportController::class, 'importTeachers']);
         Route::post('/import/parents-v2', [ImportController::class, 'importParents']); // 新仕様の保護者インポート
+
+        // お知らせ管理
+        Route::get('/announcements', [AdminAnnouncementController::class, 'index']);
+        Route::post('/announcements', [AdminAnnouncementController::class, 'store']);
+        Route::get('/announcements/{id}', [AdminAnnouncementController::class, 'show']);
+        Route::put('/announcements/{id}', [AdminAnnouncementController::class, 'update']);
+        Route::delete('/announcements/{id}', [AdminAnnouncementController::class, 'destroy']);
+        Route::get('/announcements/{id}/reads', [AdminAnnouncementController::class, 'readStatus']);
+        Route::post('/announcements/{id}/attachments', [AdminAnnouncementController::class, 'addAttachment']);
+        Route::delete('/announcements/{id}/attachments/{attachId}', [AdminAnnouncementController::class, 'removeAttachment']);
+
+        // システム設定
+        Route::get('/settings', [SettingController::class, 'index']);
+        Route::put('/settings', [SettingController::class, 'update']);
     });
 });
 
@@ -122,5 +139,10 @@ Route::prefix('parent')->middleware('web')->group(function () {
         Route::get('/absences/{id}', [AbsenceController::class, 'show']);
         Route::put('/absences/{id}', [AbsenceController::class, 'update']);
         Route::delete('/absences/{id}', [AbsenceController::class, 'destroy']);
+
+        // お知らせ
+        Route::get('/announcements', [ParentAnnouncementController::class, 'index']);
+        Route::post('/announcements/{id}/read', [ParentAnnouncementController::class, 'read']);
+        Route::get('/announcements/{id}/attachments/{attachId}', [ParentAnnouncementController::class, 'downloadAttachment']);
     });
 });
