@@ -165,6 +165,9 @@
         <Button variant="secondary" size="sm" :disabled="downloading" @click="downloadCsv">
           {{ downloading ? 'ダウンロード中...' : '📥 CSVダウンロード' }}
         </Button>
+        <Button variant="primary" size="sm" @click="openCreateModal">
+          ＋ 欠席連絡登録
+        </Button>
       </div>
       
       <div v-if="loading" class="p-8 text-center text-gray-500">
@@ -187,13 +190,14 @@
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">区分</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">理由</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">予定時刻</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="bg-white">
             <template v-for="(item, index) in absences" :key="item.id">
               <!-- 日付が変わる場合は区切り線を表示 -->
               <tr v-if="index > 0 && item.absence_date !== absences[index - 1].absence_date">
-                <td colspan="8" class="px-0 py-0">
+                <td colspan="9" class="px-0 py-0">
                   <div class="border-t-4 border-green-200"></div>
                 </td>
               </tr>
@@ -214,6 +218,13 @@
                 </td>
                 <td class="px-6 py-4 text-sm">{{ item.reason }}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm">{{ item.scheduled_time || '-' }}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <template v-if="item.is_admin_created">
+                    <button @click="openEditModal(item)" class="text-blue-600 hover:text-blue-900 mr-3">編集</button>
+                    <button @click="confirmDeleteAbsence(item)" class="text-red-600 hover:text-red-900">削除</button>
+                  </template>
+                  <span v-else class="text-xs text-gray-400">保護者入力</span>
+                </td>
               </tr>
             </template>
           </tbody>
@@ -247,6 +258,107 @@
         </div>
       </div>
     </div>
+
+    <!-- 欠席連絡登録モーダル -->
+    <Modal
+      :show="showCreateModal"
+      title="欠席連絡登録（管理者）"
+      @close="showCreateModal = false"
+      @confirm="handleCreate"
+    >
+      <div class="space-y-4">
+        <Select
+          v-model="createForm.seito_id"
+          :options="studentOptions"
+          placeholder="生徒を選択"
+          label="生徒"
+        />
+        <Select
+          v-model="createForm.division"
+          :options="divisionOptions"
+          placeholder="区分を選択"
+          label="区分"
+        />
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">欠席日</label>
+          <input
+            v-model="createForm.absence_date"
+            type="date"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">理由</label>
+          <textarea
+            v-model="createForm.reason"
+            rows="3"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          ></textarea>
+        </div>
+        <div v-if="createForm.division === '遅刻'">
+          <label class="block text-sm font-medium text-gray-700 mb-1">登校予定時刻</label>
+          <input
+            v-model="createForm.scheduled_time"
+            type="text"
+            placeholder="例: 10:30"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+    </Modal>
+
+    <!-- 欠席連絡編集モーダル -->
+    <Modal
+      :show="showEditModal"
+      title="欠席連絡編集（管理者）"
+      @close="showEditModal = false"
+      @confirm="handleUpdate"
+    >
+      <div class="space-y-4">
+        <Select
+          v-model="editForm.division"
+          :options="divisionOptions"
+          placeholder="区分を選択"
+          label="区分"
+        />
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">欠席日</label>
+          <input
+            v-model="editForm.absence_date"
+            type="date"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">理由</label>
+          <textarea
+            v-model="editForm.reason"
+            rows="3"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          ></textarea>
+        </div>
+        <div v-if="editForm.division === '遅刻'">
+          <label class="block text-sm font-medium text-gray-700 mb-1">登校予定時刻</label>
+          <input
+            v-model="editForm.scheduled_time"
+            type="text"
+            placeholder="例: 10:30"
+            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+    </Modal>
+
+    <!-- 欠席連絡削除確認モーダル -->
+    <Modal
+      :show="showDeleteAbsenceModal"
+      title="削除確認"
+      @close="showDeleteAbsenceModal = false"
+      @confirm="handleDeleteAbsence"
+    >
+      <p>「{{ deleteAbsenceTarget?.student?.seito_name }}」の欠席連絡（{{ formatDate(deleteAbsenceTarget?.absence_date) }}）を削除してもよろしいですか？</p>
+      <p class="text-sm text-red-600 mt-2">※ この操作は取り消せません</p>
+    </Modal>
   </div>
 </template>
 
@@ -257,6 +369,7 @@ import { useAuthStore } from '../../../stores/auth';
 import Button from '../../../components/Button.vue';
 import Input from '../../../components/Input.vue';
 import Select from '../../../components/Select.vue';
+import Modal from '../../../components/Modal.vue';
 
 const authStore = useAuthStore();
 
@@ -516,9 +629,106 @@ const toggleClassFilter = () => {
   fetchAbsences();
 };
 
+// ─── 管理者による欠席連絡 CRUD ───────────────────────────
+const students = ref([]);
+const showCreateModal = ref(false);
+const showEditModal = ref(false);
+const showDeleteAbsenceModal = ref(false);
+const editTarget = ref(null);
+const deleteAbsenceTarget = ref(null);
+
+const createForm = reactive({
+  seito_id: '',
+  division: '欠席',
+  reason: '',
+  absence_date: '',
+  scheduled_time: ''
+});
+
+const editForm = reactive({
+  division: '',
+  reason: '',
+  absence_date: '',
+  scheduled_time: ''
+});
+
+const studentOptions = computed(() => {
+  return students.value.map(s => ({
+    value: s.seito_id,
+    label: `${s.seito_name} (${s.seito_id})`
+  }));
+});
+
+const fetchStudentsForForm = async () => {
+  try {
+    const response = await axios.get('/api/admin/students', { params: { per_page: 200 } });
+    students.value = response.data.data || response.data;
+  } catch (error) {
+    console.error('生徒データ取得エラー:', error);
+  }
+};
+
+const openCreateModal = () => {
+  createForm.seito_id = '';
+  createForm.division = '欠席';
+  createForm.reason = '';
+  createForm.absence_date = '';
+  createForm.scheduled_time = '';
+  showCreateModal.value = true;
+};
+
+const handleCreate = async () => {
+  try {
+    await axios.post('/api/admin/absences', createForm);
+    showCreateModal.value = false;
+    fetchAbsences(pagination.current_page);
+    fetchStats();
+    fetchMonthlyStats();
+  } catch (error) {
+    alert(error.response?.data?.message || '登録に失敗しました');
+  }
+};
+
+const openEditModal = (item) => {
+  editTarget.value = item;
+  editForm.division = item.division;
+  editForm.reason = item.reason;
+  editForm.absence_date = item.absence_date ? String(item.absence_date).substring(0, 10) : '';
+  editForm.scheduled_time = item.scheduled_time || '';
+  showEditModal.value = true;
+};
+
+const handleUpdate = async () => {
+  try {
+    await axios.put(`/api/admin/absences/${editTarget.value.id}`, editForm);
+    showEditModal.value = false;
+    fetchAbsences(pagination.current_page);
+  } catch (error) {
+    alert(error.response?.data?.message || '更新に失敗しました');
+  }
+};
+
+const confirmDeleteAbsence = (item) => {
+  deleteAbsenceTarget.value = item;
+  showDeleteAbsenceModal.value = true;
+};
+
+const handleDeleteAbsence = async () => {
+  try {
+    await axios.delete(`/api/admin/absences/${deleteAbsenceTarget.value.id}`);
+    showDeleteAbsenceModal.value = false;
+    fetchAbsences(pagination.current_page);
+    fetchStats();
+    fetchMonthlyStats();
+  } catch (error) {
+    alert(error.response?.data?.message || '削除に失敗しました');
+  }
+};
+
 onMounted(() => {
   fetchStats();
   fetchMonthlyStats();
   fetchAbsences();
+  fetchStudentsForForm();
 });
 </script>

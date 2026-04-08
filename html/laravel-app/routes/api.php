@@ -81,7 +81,10 @@ Route::prefix('admin')->middleware('web')->group(function () {
         Route::get('/absences/today', [AdminAbsenceController::class, 'today']);
         Route::get('/absences/export', [AdminAbsenceController::class, 'export']);
         Route::get('/absences', [AdminAbsenceController::class, 'index']);
+        Route::post('/absences', [AdminAbsenceController::class, 'store']);
         Route::get('/absences/{id}', [AdminAbsenceController::class, 'show']);
+        Route::put('/absences/{id}', [AdminAbsenceController::class, 'update']);
+        Route::delete('/absences/{id}', [AdminAbsenceController::class, 'destroy']);
         
         // CSVインポート
         Route::post('/import/students', [CsvImportController::class, 'importStudents']);

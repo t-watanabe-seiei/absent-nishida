@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Absence;
+use App\Models\Student;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -91,6 +92,103 @@ class AbsenceController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * 欠席連絡登録（管理者作成）
+     */
+    public function store(Request $request)
+    {
+        $admin = Auth::guard('admin')->user();
+
+        $validated = $request->validate([
+            'seito_id'       => 'required|string|exists:students,seito_id',
+            'division'       => 'required|string|in:欠席,遅刻,早退',
+            'reason'         => 'required|string|max:1000',
+            'scheduled_time' => 'nullable|string|max:50',
+            'absence_date'   => 'required|date',
+        ]);
+
+        // 担任は自分のクラスの生徒のみ登録可能
+        if (!$admin->is_super_admin) {
+            $exists = Student::where('seito_id', $validated['seito_id'])
+                ->where('class_id', $admin->class_id)
+                ->exists();
+            if (!$exists) {
+                return response()->json([
+                    'message' => '担当クラス以外の生徒の欠席連絡は登録できません。',
+                ], 403);
+            }
+        }
+
+        $absence = Absence::create(array_merge($validated, ['is_admin_created' => true]));
+
+        return response()->json([
+            'message' => '欠席連絡を登録しました。',
+            'absence' => $absence->load('student.classModel'),
+        ], 201);
+    }
+
+    /**
+     * 欠席連絡更新（管理者作成のもののみ）
+     */
+    public function update(Request $request, $id)
+    {
+        $admin = Auth::guard('admin')->user();
+
+        $absence = Absence::where('is_admin_created', true)
+            ->where('is_deleted', false)
+            ->findOrFail($id);
+
+        // 担任は自分のクラスの生徒のもののみ更新可能
+        if (!$admin->is_super_admin) {
+            $exists = Student::where('seito_id', $absence->seito_id)
+                ->where('class_id', $admin->class_id)
+                ->exists();
+            if (!$exists) {
+                return response()->json(['message' => '変更権限がありません。'], 403);
+            }
+        }
+
+        $validated = $request->validate([
+            'division'       => 'sometimes|string|in:欠席,遅刻,早退',
+            'reason'         => 'sometimes|string|max:1000',
+            'scheduled_time' => 'nullable|string|max:50',
+            'absence_date'   => 'sometimes|date',
+        ]);
+
+        $absence->update($validated);
+
+        return response()->json([
+            'message' => '欠席連絡を更新しました。',
+            'absence' => $absence->load('student.classModel'),
+        ]);
+    }
+
+    /**
+     * 欠席連絡削除（管理者作成のもののみ・論理削除）
+     */
+    public function destroy($id)
+    {
+        $admin = Auth::guard('admin')->user();
+
+        $absence = Absence::where('is_admin_created', true)
+            ->where('is_deleted', false)
+            ->findOrFail($id);
+
+        // 担任は自分のクラスの生徒のもののみ削除可能
+        if (!$admin->is_super_admin) {
+            $exists = Student::where('seito_id', $absence->seito_id)
+                ->where('class_id', $admin->class_id)
+                ->exists();
+            if (!$exists) {
+                return response()->json(['message' => '削除権限がありません。'], 403);
+            }
+        }
+
+        $absence->update(['is_deleted' => true, 'deleted_at' => Carbon::now()]);
+
+        return response()->json(['message' => '欠席連絡を削除しました。']);
     }
 
     /**

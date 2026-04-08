@@ -52,7 +52,7 @@
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">氏名</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">出席番号</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">クラス</th>
-              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider" v-if="isSuperAdmin">操作</th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
@@ -61,7 +61,7 @@
               <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">{{ item.seito_name }}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">{{ item.seito_number }}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">{{ item.class_model?.class_name || '-' }}</td>
-              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" v-if="isSuperAdmin">
                 <router-link
                   :to="`/admin/students/${item.id}/edit`"
                   class="text-blue-600 hover:text-blue-900 mr-4"

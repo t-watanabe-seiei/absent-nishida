@@ -17,6 +17,7 @@ class Absence extends Model
         'absence_date',
         'is_deleted',
         'deleted_at',
+        'is_admin_created',
     ];
 
     protected function casts(): array
@@ -25,6 +26,7 @@ class Absence extends Model
             'absence_date' => 'date',
             'is_deleted' => 'boolean',
             'deleted_at' => 'datetime',
+            'is_admin_created' => 'boolean',
         ];
     }
 

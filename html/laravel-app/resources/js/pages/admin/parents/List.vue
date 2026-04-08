@@ -2,7 +2,7 @@
   <div>
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
       <h1 class="text-2xl font-bold">保護者一覧</h1>
-      <router-link to="/admin/parents/create">
+      <router-link v-if="isSuperAdmin" to="/admin/parents/create">
         <Button variant="primary">新規登録</Button>
       </router-link>
     </div>
@@ -39,7 +39,7 @@
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">電話番号</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メール</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">生徒ID</th>
-              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+              <th v-if="isSuperAdmin" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
@@ -49,7 +49,7 @@
               <td class="px-6 py-4 whitespace-nowrap text-sm">{{ item.parent_tel }}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">{{ item.parent_email }}</td>
               <td class="px-6 py-4 whitespace-nowrap text-sm">{{ item.seito_id }}</td>
-              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+              <td v-if="isSuperAdmin" class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                 <router-link
                   :to="`/admin/parents/${item.id}/edit`"
                   class="text-blue-600 hover:text-blue-900 mr-4"
@@ -110,13 +110,19 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useAdminStore } from '../../../stores/admin';
+import { useAuthStore } from '../../../stores/auth';
 import Button from '../../../components/Button.vue';
 import Input from '../../../components/Input.vue';
 import Modal from '../../../components/Modal.vue';
 
 const adminStore = useAdminStore();
+const authStore = useAuthStore();
+
+const isSuperAdmin = computed(() => {
+  return authStore.user?.is_super_admin ?? false;
+});
 
 const parents = ref([]);
 const loading = ref(false);

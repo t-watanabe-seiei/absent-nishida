@@ -7,6 +7,7 @@ use App\Http\Requests\StoreParentRequest;
 use App\Http\Requests\UpdateParentRequest;
 use App\Models\ParentModel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -17,7 +18,15 @@ class ParentController extends Controller
      */
     public function index(Request $request)
     {
+        $admin = Auth::guard('admin')->user();
         $query = ParentModel::with('student.classModel');
+
+        // 担任の場合は自分のクラスの保護者のみ表示
+        if ($admin && !$admin->is_super_admin && $admin->class_id) {
+            $query->whereHas('student', function ($q) use ($admin) {
+                $q->where('class_id', $admin->class_id);
+            });
+        }
 
         // 検索
         if ($request->has('search')) {

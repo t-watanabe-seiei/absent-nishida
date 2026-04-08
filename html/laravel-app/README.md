@@ -76,7 +76,7 @@ npm run dev
 | `/admin/dashboard` | ダッシュボード（統計情報） |
 | `/admin/classes` | クラス一覧・管理（スーパー管理者のみ） |
 | `/admin/students` | 生徒一覧・管理 |
-| `/admin/parents` | 保護者一覧・管理（スーパー管理者のみ） |
+| `/admin/parents` | 保護者一覧・管理（スーパー管理者は編集・削除可、担任は閲覧のみ） |
 | `/admin/absences` | 欠席連絡一覧 |
 | `/admin/absences/today` | 本日の欠席・遅刻一覧 |
 | `/admin/import` | CSVインポート（スーパー管理者のみ） |
@@ -86,6 +86,9 @@ npm run dev
 **管理者種別：**
 - **スーパー管理者**（`is_super_admin=true`）: 全クラスのデータを管理、お知らせ機能のON/OFF切替可
 - **担任**（`is_super_admin=false`）: 自分の担当クラスのデータのみ参照・管理
+  - 生徒一覧: 閲覧のみ（編集・削除ボタン非表示）
+  - 保護者一覧: 自クラスの保護者を閲覧のみ（編集・削除ボタン非表示）
+  - 欠席連絡: 自クラスの欠席を閲覧＋管理者作成分を登録・編集・削除可
 
 ### 保護者
 
@@ -134,7 +137,7 @@ initial_email + initial_password
 | `classes` | クラス情報（class_id, class_name, teacher_name, teacher_email, year_id） |
 | `students` | 生徒情報（seito_id, seito_name, seito_number, class_id） |
 | `parents` | 保護者情報（seito_id, parent_name, parent_email, 認証情報） |
-| `absences` | 欠席連絡（seito_id, division, reason, absence_date, scheduled_time） |
+| `absences` | 欠席連絡（seito_id, division, reason, absence_date, scheduled_time, is_admin_created） |
 | `two_factor_codes` | 2段階認証コード（email, code, guard, expires_at） |
 | `announcements` | お知らせ（admin_id, title, body, target_class_ids, target_parent_ids, notify_by_email, expires_at） |
 | `announcement_reads` | お知らせ既読記録（announcement_id, parent_id, read_at） |
@@ -168,10 +171,10 @@ initial_email + initial_password
 ## 管理者機能
 
 ### 生徒管理
-- 生徒の登録・編集・削除
+- スーパー管理者: 生徒の登録・編集・削除、全クラス表示
+- 担任: 自分のクラスの生徒のみ表示・閲覧（編集・削除ボタン非表示）
 - 生徒一覧（クラス・氏名・学年で検索・フィルタ）
   - スーパー管理者: **学年 → クラス** の2段階フィルタ
-  - 担任: 自分のクラスの生徒のみ操作可
 
 ### クラス管理
 - クラスの登録・編集・削除
@@ -179,7 +182,8 @@ initial_email + initial_password
 - 各クラスに担任名・担任メールアドレスを設定
 
 ### 保護者管理
-- 保護者の登録・編集・削除
+- スーパー管理者: 保護者の登録・編集・削除、全クラス表示
+- 担任: 自分のクラスの保護者のみ表示・閲覧（編集・削除ボタン非表示）
 - 保護者一覧（生徒との1対多紐付け）
 
 ### 欠席連絡管理
@@ -187,6 +191,12 @@ initial_email + initial_password
 - 日付範囲・クラス・区分でフィルタ可能
 - 欠席連絡の月次一覧・統計グラフ・クラス別集計
 - フィルター条件に合う全件を UTF-8 BOM 付き CSV でダウンロード可能（項目：日付・学年・クラス・出席番号・氏名・区分・理由・予定時刻）
+- **管理者による欠席連絡入力（登録・編集・削除）**
+  - スーパー管理者: 全クラスの生徒を対象に登録可
+  - 担任: 自分のクラスの生徒のみ対象に登録可
+  - 保護者が入力した欠席連絡は変更・削除不可（閲覧のみ）
+  - 管理者自身が登録した欠席連絡のみ編集・削除可
+  - `absences.is_admin_created = true` で識別
 
 ### お知らせ管理
 - お知らせの作成・編集・削除（タイトル・本文・有効期限・対象クラス/保護者を指定）
@@ -289,6 +299,9 @@ initial_email + initial_password
 | GET | `/admin/absences/export` | 欠席CSVダウンロード |
 | GET | `/admin/absences` | 欠席一覧 |
 | GET | `/admin/absences/{id}` | 欠席詳細 |
+| POST | `/admin/absences` | 欠席連絡登録（管理者作成） |
+| PUT | `/admin/absences/{id}` | 欠席連絡更新（管理者作成のもののみ） |
+| DELETE | `/admin/absences/{id}` | 欠席連絡削除（管理者作成のもののみ・論理削除） |
 | POST | `/admin/import/students` | 生徒CSVインポート |
 | POST | `/admin/import/parents` | 保護者CSVインポート |
 | POST | `/admin/import/admins` | 管理者CSVインポート |
