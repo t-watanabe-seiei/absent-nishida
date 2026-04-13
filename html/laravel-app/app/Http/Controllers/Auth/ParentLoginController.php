@@ -87,7 +87,7 @@ class ParentLoginController extends Controller
     public function registerEmail(Request $request)
     {
         $request->validate([
-            'parent_email' => 'required|email|unique:parents,parent_email',
+            'parent_email' => 'required|email',
         ]);
 
         // セッションからparent_idを取得

@@ -113,10 +113,12 @@ email + パスワード → ログイン成功 → ダッシュボード
 ### 保護者（初回ログイン）
 ```
 initial_email + initial_password
-  → メールアドレス登録（parent_email）
+  → メールアドレス登録（parent_email: 2FA送信先）
     → 認証コード送信（6桁・10分有効）
       → コード入力 → ダッシュボード
 ```
+> **兄弟がいる場合**: 各兄弟は別々の `initial_email` でログインし、
+> 2FA送信先（`parent_email`）は同じ保護者のメールアドレスを複数レコードで共有できます。
 
 ### 保護者（2回目以降）
 ```
@@ -155,6 +157,22 @@ initial_email + initial_password
 | class_id | string nullable | 担当クラスID（担任のみ） |
 | is_super_admin | boolean | スーパー管理者フラグ（デフォルト false） |
 
+### parents テーブル
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| id | integer | PK |
+| seito_id | string | 生徒ID（FK: students.seito_id） |
+| parent_name | string | 保護者氏名 |
+| parent_relationship | string | 続柄（父/母/その他） |
+| parent_tel | string nullable | 電話番号 |
+| parent_initial_email | string **UNIQUE** | **ログイン用**メールアドレス（管理者が設定・一意） |
+| parent_initial_password | string | ログイン用パスワード（bcrypt） |
+| parent_email | string nullable | **2FA送信先**メールアドレス（保護者が初回ログイン時に設定） |
+| parent_password | string nullable | 将来の拡張用 |
+
+> **注意**: `parent_email`（2FA送信先）は兄弟で同じアドレスを共有できます。`parent_initial_email`（ログイン用）のみ一意制約があります。
+
 ### classes テーブル
 
 | カラム | 型 | 説明 |
@@ -185,6 +203,7 @@ initial_email + initial_password
 - スーパー管理者: 保護者の登録・編集・削除、全クラス表示
 - 担任: 自分のクラスの保護者のみ表示・閲覧（編集・削除ボタン非表示）
 - 保護者一覧（生徒との1対多紐付け）
+- **兄弟対応**: 同じ保護者が兄弟の複数生徒を管理する場合、2FA用メールアドレス（`parent_email`）は兄弟間で同じアドレスを使用可能。ログイン用メール（`parent_initial_email`）は兄弟ごとに異なるアドレスで一意管理。
 
 ### 欠席連絡管理
 - 本日の欠席・遅刻一覧（担任はクラス絞り込み）
@@ -408,3 +427,36 @@ laravel-app/
  storage/
     └── app/               # アップロードファイル保存先
 ```
+
+---
+
+## 変更履歴
+
+### 2026-04-13: 兄弟がいる保護者の parent_email 重複エラー修正
+
+#### 概要
+
+2FA用メールアドレス（`parent_email`）を登録しようとするとバリデーションエラーが発生していた問題を修正しました。
+
+#### 根本原因
+
+`parents` テーブルの `parent_email` カラムに `UNIQUE` 制約があり、同一メールアドレスを複数レコードに登録できなかった。
+
+#### 対応内容
+
+| # | ファイル | 変更内容 |
+|---|---|---|
+| E-1 | `database/migrations/2026_04_13_185317_remove_unique_from_parents_parent_email.php` | `parent_email` の UNIQUE インデックスを削除 |
+| E-2 | `app/Http/Requests/StoreParentRequest.php` | unique チェック対象を `parent_initial_email` に変更 |
+| E-3 | `app/Http/Requests/UpdateParentRequest.php` | 同上 |
+| E-4 | `app/Http/Controllers/Admin/ParentController.php` | `store()`: 登録時に `parent_email = null` を明示セット |
+| E-5 | `app/Http/Controllers/Admin/ParentController.php` | `update()`: ログイン用メール(`parent_initial_email`)のみ更新、`parent_email` は保護者設定を維持 |
+| E-6 | `app/Http/Controllers/Auth/ParentLoginController.php` | `registerEmail()`: `parent_email` の unique バリデーション削除 |
+| E-7 | `app/Http/Controllers/Auth/RegisterController.php` | `registerParent()`: 同上 |
+| E-8 | `resources/js/pages/admin/parents/Form.vue` | 編集フォームのロード元を `parent_initial_email` に変更 |
+
+#### 設計方針
+
+- `parent_initial_email`（ログイン用）は **UNIQUE 制約を維持**。兄弟はそれぞれ異なるログインIDを持つ。
+- `parent_email`（2FA送信先）は **UNIQUE 制約を削除**。兄弟が同じ保護者メールアドレスを共有できる。
+- 管理者フォームで入力する「メールアドレス」は **ログイン用** として扱われる。2FA用メールは保護者が初回ログイン時に自分で設定する。

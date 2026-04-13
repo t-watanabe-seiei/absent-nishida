@@ -28,7 +28,7 @@ class UpdateParentRequest extends FormRequest
             'parent_name' => 'required|string|max:255',
             'parent_relationship' => 'required|in:父,母,その他',
             'parent_tel' => 'nullable|string|max:20',
-            'parent_email' => 'required|email|unique:parents,parent_email,' . $parentId,
+            'parent_email' => 'required|email|unique:parents,parent_initial_email,' . $parentId,
             'parent_password' => 'nullable|string|min:8',
         ];
     }

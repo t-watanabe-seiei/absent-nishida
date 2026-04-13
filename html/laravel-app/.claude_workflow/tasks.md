@@ -158,3 +158,51 @@
 ### C-CHECK-2 [ ] npm run build でフロントエンドビルド
 
 ### C-DOC-1 [ ] README.md にお知らせ機能・設定機能を追記
+
+---
+
+## 機能 E: 兄弟がいる保護者の parent_email 重複エラー修正
+
+### E-1 [ ] マイグレーション作成・実行: parent_email UNIQUE インデックス削除
+- ファイル: database/migrations/2026_04_13_000001_remove_unique_from_parents_parent_email.php
+- `parents_parent_email_unique` インデックスを dropUnique で削除
+- `php artisan migrate` で適用
+
+### E-2 [ ] StoreParentRequest 修正
+- ファイル: app/Http/Requests/StoreParentRequest.php
+- `parent_email` のバリデーション: `unique:parents,parent_email` → `unique:parents,parent_initial_email` に変更
+
+### E-3 [ ] UpdateParentRequest 修正
+- ファイル: app/Http/Requests/UpdateParentRequest.php
+- `parent_email` のバリデーション: `unique:parents,parent_email,{id}` → `unique:parents,parent_initial_email,{id}` に変更
+
+### E-4 [ ] ParentController::store() 修正
+- ファイル: app/Http/Controllers/Admin/ParentController.php
+- `parent_initial_email = parent_email` の代入直後に `parent_email = null` を追加
+
+### E-5 [ ] ParentController::update() 修正
+- ファイル: app/Http/Controllers/Admin/ParentController.php
+- `$parent->update($data)` の直前に、`parent_initial_email = parent_email`・`unset(parent_email)` を追加
+- 管理者フォームから来た `parent_email` はログイン用メールとして扱い、2FA用メールは変更しない
+
+### E-6 [ ] ParentLoginController::registerEmail() 修正
+- ファイル: app/Http/Controllers/Auth/ParentLoginController.php
+- `parent_email` のバリデーションから `unique:parents,parent_email` を削除
+
+### E-7 [ ] RegisterController::registerParent() 修正
+- ファイル: app/Http/Controllers/Auth/RegisterController.php
+- `email` のバリデーションから `unique:parents,parent_email` を削除
+
+### E-8 [ ] Form.vue (管理者保護者フォーム) 修正
+- ファイル: resources/js/pages/admin/parents/Form.vue
+- fetchData() のデータロード: `parent_email: data.parent_email` → `parent_email: data.parent_initial_email` に変更
+
+### E-CHECK [ ] PHP 構文チェック・動作確認
+- php -l app/Http/Requests/StoreParentRequest.php
+- php -l app/Http/Requests/UpdateParentRequest.php
+- php -l app/Http/Controllers/Admin/ParentController.php
+- php -l app/Http/Controllers/Auth/ParentLoginController.php
+- php -l app/Http/Controllers/Auth/RegisterController.php
+- php -l database/migrations/2026_04_13_000001_remove_unique_from_parents_parent_email.php
+
+### E-DOC [ ] README.md に修正内容を追記

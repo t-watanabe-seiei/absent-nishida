@@ -60,6 +60,7 @@ class ParentController extends Controller
         // 初期パスワードを生成して保存
         $initialPassword = Str::random(12);
         $data['parent_initial_email'] = $data['parent_email'];
+        $data['parent_email'] = null; // 2FA用メールは保護者が初回ログイン時に自分で設定する
         $data['parent_initial_password'] = $initialPassword;
         
         // パスワードはハッシュ化（自動的にキャストでハッシュ化される）
@@ -96,7 +97,12 @@ class ParentController extends Controller
         if (empty($data['parent_password'])) {
             unset($data['parent_password']);
         }
-        
+
+        // フォームの「メールアドレス」はログイン用(parent_initial_email)のみ更新する
+        // 保護者が設定した2FA用メール(parent_email)は管理者が上書きしない
+        $data['parent_initial_email'] = $data['parent_email'];
+        unset($data['parent_email']);
+
         $parent->update($data);
         $parent->load('student.classModel');
 

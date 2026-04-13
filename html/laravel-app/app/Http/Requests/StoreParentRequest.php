@@ -26,7 +26,7 @@ class StoreParentRequest extends FormRequest
             'parent_name' => 'required|string|max:255',
             'parent_relationship' => 'required|in:父,母,その他',
             'parent_tel' => 'nullable|string|max:20',
-            'parent_email' => 'required|email|unique:parents,parent_email',
+            'parent_email' => 'required|email|unique:parents,parent_initial_email',
             'parent_password' => 'required|string|min:8',
         ];
     }

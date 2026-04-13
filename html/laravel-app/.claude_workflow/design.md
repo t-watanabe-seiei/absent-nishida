@@ -453,3 +453,202 @@ Route::get('/announcements/{id}/attachments/{attachId}', [ParentAnnouncementCont
 6. **system_settings の初期値**
    マイグレーション時に `announcement_enabled = '0'` をシーダーで投入する。  
    フロントは GET /api/admin/settings でこの値を参照してトグルの初期位置を決定する。
+
+---
+
+## 機能 E: 兄弟がいる保護者の parent_email 重複エラー修正
+
+### カラム役割の整理
+
+| カラム | 役割 | UNIQUE 制約 |
+|---|---|---|
+| `parent_initial_email` | **ログイン用**メールアドレス（管理者が設定） | 維持 |
+| `parent_email` | **2FA送信先**（保護者が初回ログイン時に自分で設定） | **削除** |
+
+ls `parent_initial_email` が各自異なる（ログイン ID として一意）。  
+`parent_email` は同じ母親のアドレスを複数レコードで共有できるようにする。
+
+---
+
+### E-1. マイグレーション: parent_email UNIQUE インデックスを削除
+
+**ファイル**: `database/migrations/2026_04_13_xxxxxx_remove_unique_from_parents_parent_email.php`
+
+```php
+Schema::table('parents', function (Blueprint $table) {
+    $table->dropUnique('parents_parent_email_unique');
+});
+```
+
+> Laravel のデフォルト命名規則: `{table}_{column}_unique` = `parents_parent_email_unique`
+
+---
+
+### E-2. StoreParentRequest 変更
+
+**ファイル**: `app/Http/Requests/StoreParentRequest.php`
+
+:
+```php
+'parent_email' => 'required|email|unique:parents,parent_email',
+```
+
+:
+```php
+'parent_email' => 'required|email|unique:parents,parent_initial_email',
+```
+
+**理由**: 管理者フォームの「メールアドレス」欄は **ログイン用** メール(`parent_initial_email`)を設定するもの。
+ `parent_initial_email` カラムに対してチェックすることで、同じログインIDの二重登録を防ぐ。
+
+---
+
+### E-3. UpdateParentRequest 変更
+
+**ファイル**: `app/Http/Requests/UpdateParentRequest.php`
+
+:
+```php
+'parent_email' => 'required|email|unique:parents,parent_email,' . $parentId,
+```
+
+:
+```php
+'parent_email' => 'required|email|unique:parents,parent_initial_email,' . $parentId,
+```
+
+---
+
+### E-4. ParentController::store() 変更
+
+**ファイル**: `app/Http/Controllers/Admin/ParentController.php`
+
+--host=0.0.0.0: `store()` メソッド内
+
+:
+```php
+$data['parent_initial_email'] = $data['parent_email'];
+$data['parent_initial_password'] = $initialPassword;
+```
+
+:
+```php
+$data['parent_initial_email'] = $data['parent_email'];
+$data['parent_email'] = null;   // 追加: 2FA用メールは保護者が初回ログイン時に設定
+$data['parent_initial_password'] = $initialPassword;
+```
+
+**理由**: 管理者が入力したメールはログイン用(`parent_initial_email`)のみに保存。
+`parent_email` (2FA送信先) は保護者自身が初回ログイン時に設定する。
+
+---
+
+### E-5. ParentController::update() 変更
+
+**ファイル**: `app/Http/Controllers/Admin/ParentController.php`
+
+--host=0.0.0.0: `update()` メソッド内、`$parent->update($data)` の直前
+
+:
+```php
+if (empty($data['parent_password'])) {
+    unset($data['parent_password']);
+}
+$parent->update($data);
+```
+
+:
+```php
+if (empty($data['parent_password'])) {
+    unset($data['parent_password']);
+}
+// ログイン用メールを更新、2FA用メール(parent_email)は管理者が変更しない
+$data['parent_initial_email'] = $data['parent_email'];
+unset($data['parent_email']);
+$parent->update($data);
+```
+
+**理由**: 管理者が更新フォームで変更した「メールアドレス」はログイン用(`parent_initial_email`)のみを更新する。
+Dockerfile devcontainer.json docker-compose.yml html --host=0.0.0.02FA用メール(`parent_email`)を管理者が上書きしないようにする。
+
+---
+
+### E-6. ParentLoginController::registerEmail() 変更
+
+**ファイル**: `app/Http/Controllers/Auth/ParentLoginController.php`
+
+:
+```php
+$request->validate([
+    'parent_email' => 'required|email|unique:parents,parent_email',
+]);
+```
+
+:
+```php
+$request->validate([
+    'parent_email' => 'required|email',
+]);
+```
+
+**理由**: 兄弟が同じ2FA用メールアドレスを登録できるようにするため、`unique`制約を取り除く。
+
+---
+
+### E-7. RegisterController::registerParent() 変更
+
+**ファイル**: `app/Http/Controllers/Auth/RegisterController.php`
+
+:
+```php
+'email' => 'required|email|unique:parents,parent_email|max:255',
+```
+
+:
+```php
+'email' => 'required|email|max:255',
+```
+
+**理由**: 同上。セルフ登録フローでも兄弟が同じ個人メールアドレスを2FA用として使用できるようにする。
+
+---
+
+### E-8. Form.vue (管理者保護者フォーム) 変更
+
+**ファイル**: `resources/js/pages/admin/parents/Form.vue`
+
+--host=0.0.0.0: `fetchData()` 内のデータロード
+
+:
+```js
+parent_email: data.parent_email
+```
+
+:
+```js
+parent_email: data.parent_initial_email
+```
+
+**理由**: 編集フォームには「ログイン用メールアドレス」(`parent_initial_email`)を表示・編集させる。
+E-5 により、保存時も `parent_initial_email` が更新されるので一貫性を保つ。
+
+---
+
+### 影響範囲まとめ
+
+| # | ファイル | 変更内容 | 種別 |
+|---|---|---|---|
+| E-1 | 新規マイグレーションファイル | `parent_email` UNIQUEインデックス削除 | DB |
+| E-2 | app/Http/Requests/StoreParentRequest.php | unique チェック対象カラム変更 | バックエンド |
+| E-3 | app/Http/Requests/UpdateParentRequest.php | 同上 | バックエンド |
+| E-4 | app/Http/Controllers/Admin/ParentController.php | store() に `parent_email = null` 追加 | バックエンド |
+| E-5 | app/Http/Controllers/Admin/ParentController.php | update() でログイン用メールのみ更新 | バックエンド |
+| E-6 | app/Http/Controllers/Auth/ParentLoginController.php | registerEmail() の unique 削除 | バックエンド |
+| E-7 | app/Http/Controllers/Auth/RegisterController.php | registerParent() の unique 削除 | バックエンド |
+| E-8 | resources/js/pages/admin/parents/Form.vue | fetchData() のロード元を変更 | フロントエンド |
+
+### 変更しない箇所
+
+- `parent_initial_email` の UNIQUE 制約: 維持（兄弟のログインIDは一意であるべき）
+- 認証フロー全体: ログイン・2FA 送受信の処理は変更なし
+- CSV インポート: すでに `parent_email = null` で登録しているため修正不要

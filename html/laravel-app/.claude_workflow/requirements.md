@@ -120,6 +120,48 @@ GET /api/admin/absences/export
 
 ---
 
+## 機能 E：兄弟がいる保護者の parent_email 重複登録エラー修正
+
+### 現状（バグ）
+
+`parents` テーブルの `parent_email` カラムに `UNIQUE` 制約があるため、
+同じ保護者が兄弟の **2人目以降** のレコードを `parent_email` に同じメールアドレスで登録しようとするとエラーになる。
+
+エラーが発生する箇所：
+1. `StoreParentRequest` — `parent_email` に `unique:parents,parent_email` 制約
+2. `UpdateParentRequest` — 同上（self除外あり）
+3. `ParentLoginController::registerEmail()` — 同上（保護者が初回ログイン時に2FA用メールを登録する際）
+4. `RegisterController::registerParent()` — 同上
+5. DBマイグレーション — `parent_email` に `->unique()` 制約
+
+### カラムの用途整理
+
+| カラム | 用途 | 現状の制約 |
+|---|---|---|
+| `parent_initial_email` | **ログイン用** メールアドレス | `UNIQUE`（ログインに使用するため維持する） |
+| `parent_email` | **2段階認証** の送信先（初回ログイン時に保護者が設定） | `UNIQUE`（← これが問題） |
+
+### 要件
+
+1. **兄弟はそれぞれ異なる `parent_initial_email`（ログイン用）でログインする**
+   - ログイン用メールの UNIQUE 制約は維持する
+2. **`parent_email`（2段階認証の送信先）は兄弟間で同じメールアドレスを使用できるようにする**
+   - DBの `parent_email` UNIQUE 制約を削除する
+   - バリデーションの UNIQUE チェックを削除する
+3. **管理者による保護者新規登録時の挙動変更**
+   - 管理者フォームで入力した「メールアドレス」は `parent_initial_email`（ログイン用）のみに保存する
+   - `parent_email`（2FA送信先）は登録時 null のまま、保護者が初回ログイン時に自分で設定する
+   - CSV インポートの既存挙動（`parent_email = null`）と一貫させる
+
+### 成功基準
+
+- 兄弟の2人目を、同じ `parent_email` アドレスで登録してもエラーにならない
+- `parent_initial_email` の UNIQUE 制約は維持されており、同じログイン用メールアドレスの二重登録はできない
+- 保護者の初回ログイン時に同じ 2FA メールアドレスを複数の兄弟アカウントに登録できる
+- 既存の認証フロー（ログイン・2FA）が引き続き正常に動作する
+
+---
+
 ## 機能 C：お知らせ機能（管理者 → 保護者）
 
 ### 背景・目的

@@ -146,7 +146,7 @@ const fetchData = async () => {
       parent_name: data.parent_name,
       parent_relationship: data.parent_relationship,
       parent_tel: data.parent_tel,
-      parent_email: data.parent_email
+      parent_email: data.parent_initial_email
     });
   } catch (error) {
     errors.general = 'データの取得に失敗しました';
